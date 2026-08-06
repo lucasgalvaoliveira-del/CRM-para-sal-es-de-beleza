@@ -1,0 +1,56 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap");
+@import "tailwindcss";
+
+:root {
+  /* Alva — paleta própria: ameixa profundo + salva + marfim quente */
+  --alva-plum-950: #2a1524;
+  --alva-plum-800: #4a2140;
+  --alva-plum-600: #6c2f58;
+  --alva-plum-400: #a1568a;
+  --alva-sage-500: #6f8f76;
+  --alva-sage-300: #a9c2ac;
+  --alva-ivory-50: #faf7f3;
+  --alva-ivory-100: #f2ece3;
+  --alva-ink-900: #211a1e;
+  --alva-gold-500: #b98a3e;
+
+  --background: var(--alva-ivory-50);
+  --foreground: var(--alva-ink-900);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-plum-950: var(--alva-plum-950);
+  --color-plum-800: var(--alva-plum-800);
+  --color-plum-600: var(--alva-plum-600);
+  --color-plum-400: var(--alva-plum-400);
+  --color-sage-500: var(--alva-sage-500);
+  --color-sage-300: var(--alva-sage-300);
+  --color-ivory-50: var(--alva-ivory-50);
+  --color-ivory-100: var(--alva-ivory-100);
+  --color-ink-900: var(--alva-ink-900);
+  --color-gold-500: var(--alva-gold-500);
+  --font-display: "Fraunces", serif;
+  --font-sans: "Inter", sans-serif;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+}
+
+h1, h2, h3, .font-display {
+  font-family: var(--font-display);
+}
+
+::selection {
+  background: var(--alva-plum-400);
+  color: white;
+}
+
+:focus-visible {
+  outline: 2px solid var(--alva-plum-600);
+  outline-offset: 2px;
+}
