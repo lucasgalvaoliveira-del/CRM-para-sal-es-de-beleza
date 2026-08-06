@@ -200,7 +200,7 @@ $$;
 -- Preenche empresa_id automaticamente quando o formulário não envia
 -- (Clientes/Serviços/Produtos/Profissionais inserem sem esse campo hoje).
 create or replace function preencher_empresa_id()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql set search_path = public as $$
 begin
   if new.empresa_id is null then
     new.empresa_id := empresa_do_usuario();
