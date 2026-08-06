@@ -163,3 +163,49 @@ select
 from movimentacoes_caixa m
 join caixas c on c.id = m.caixa_id
 group by c.empresa_id, date(m.criado_em);
+
+-- ============================================================
+-- Autenticação — bootstrap de empresa/perfil no primeiro login
+-- ============================================================
+
+-- Cria a empresa e o perfil (papel 'gestor') do usuário autenticado.
+-- security definer: permite o insert passar por cima da RLS só aqui,
+-- de forma controlada — sem precisar de service role key no app.
+create or replace function criar_empresa_e_perfil(nome_empresa text, nome_usuario text)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  nova_empresa_id uuid;
+begin
+  if exists (select 1 from perfis where id = auth.uid()) then
+    raise exception 'Usuário já possui um perfil.';
+  end if;
+
+  insert into empresas (nome) values (nome_empresa) returning id into nova_empresa_id;
+  insert into perfis (id, empresa_id, nome, papel) values (auth.uid(), nova_empresa_id, nome_usuario, 'gestor');
+
+  return nova_empresa_id;
+end;
+$$;
+
+-- Preenche empresa_id automaticamente quando o formulário não envia
+-- (Clientes/Serviços/Produtos/Profissionais inserem sem esse campo hoje).
+create or replace function preencher_empresa_id()
+returns trigger language plpgsql as $$
+begin
+  if new.empresa_id is null then
+    new.empresa_id := empresa_do_usuario();
+  end if;
+  return new;
+end;
+$$;
+
+create trigger set_empresa_id before insert on clientes
+  for each row execute function preencher_empresa_id();
+create trigger set_empresa_id before insert on servicos
+  for each row execute function preencher_empresa_id();
+create trigger set_empresa_id before insert on produtos
+  for each row execute function preencher_empresa_id();
+create trigger set_empresa_id before insert on profissionais
+  for each row execute function preencher_empresa_id();
