@@ -168,6 +168,10 @@ from movimentacoes_caixa m
 join caixas c on c.id = m.caixa_id
 group by c.empresa_id, date(m.criado_em);
 
+-- Corrige vazamento entre empresas: sem isso a view roda com privilégio do
+-- dono (bypassa RLS), expondo faturamento de todas as empresas via anon key.
+alter view v_faturamento_diario set (security_invoker = on);
+
 -- ============================================================
 -- Autenticação — bootstrap de empresa/perfil no primeiro login
 -- ============================================================
