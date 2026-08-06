@@ -4,6 +4,7 @@ import { logout } from "@/app/(auth)/actions";
 const links = [
   { href: "/", label: "Painel" },
   { href: "/agenda", label: "Agenda" },
+  { href: "/profissionais", label: "Profissionais" },
   { href: "/caixa", label: "Caixa" },
   { href: "/clientes", label: "Clientes" },
   { href: "/servicos", label: "Serviços" },
