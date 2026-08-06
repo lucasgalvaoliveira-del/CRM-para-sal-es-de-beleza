@@ -129,9 +129,13 @@ alter table agendamentos enable row level security;
 alter table caixas enable row level security;
 alter table movimentacoes_caixa enable row level security;
 
+-- security definer: sem isso, a policy crud_perfis (que usa esta função)
+-- recursiona infinitamente ao consultar perfis dentro da própria função
+-- (stack depth limit exceeded) — só retorna o empresa_id do próprio
+-- usuário autenticado, não há dado controlado por terceiros em risco.
 create or replace function empresa_do_usuario()
 returns uuid
-language sql stable
+language sql stable security definer set search_path = public
 as $$
   select empresa_id from perfis where id = auth.uid()
 $$;
