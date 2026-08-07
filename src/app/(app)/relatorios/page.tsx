@@ -2,6 +2,22 @@ import { createClient } from "@/lib/supabase/server";
 
 export default async function RelatoriosPage() {
   const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  let timezone = "America/Sao_Paulo";
+  if (user) {
+    const { data: perfil } = await supabase
+      .from("perfis")
+      .select("empresas(timezone)")
+      .eq("id", user.id)
+      .single();
+    const empresa = Array.isArray(perfil?.empresas) ? perfil?.empresas[0] : perfil?.empresas;
+    timezone = empresa?.timezone ?? timezone;
+  }
+
   const { data: faturamento, error } = await supabase
     .from("v_faturamento_diario")
     .select("dia, total_servicos, total_produtos, total_entradas, total_saidas")
@@ -41,7 +57,14 @@ export default async function RelatoriosPage() {
             )}
             {faturamento?.map((d) => (
               <tr key={d.dia} className="border-t border-plum-400/10">
-                <td className="px-4 py-3">{new Date(d.dia).toLocaleDateString("pt-BR")}</td>
+                {/* `dia` is a plain date (no time component) already bucketed to the
+                    empresa's local calendar day by v_faturamento_diario (Task 6). JS parses a
+                    bare "YYYY-MM-DD" string as UTC midnight, so formatting it with the empresa's
+                    timeZone here would re-apply an offset and shift it back a day for any
+                    negative-UTC-offset timezone (e.g. America/Sao_Paulo) — verified live: it
+                    rendered 31/08/2026 instead of 01/09/2026. Formatting with "UTC" reads back
+                    the same calendar day deterministically, regardless of server runtime tz. */}
+                <td className="px-4 py-3">{new Date(d.dia).toLocaleDateString("pt-BR", { timeZone: "UTC" })}</td>
                 <td className="px-4 py-3 text-right">R$ {Number(d.total_servicos).toFixed(2)}</td>
                 <td className="px-4 py-3 text-right">R$ {Number(d.total_produtos).toFixed(2)}</td>
                 <td className="px-4 py-3 text-right text-sage-500">R$ {Number(d.total_entradas).toFixed(2)}</td>
