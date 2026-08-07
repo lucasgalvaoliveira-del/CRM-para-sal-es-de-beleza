@@ -1,8 +1,12 @@
 # Spec — Agenda e Agendamentos v1
 
-Status: **proposta, não implementada**. Item #2 do roadmap de prioridade 2
-(`docs/roadmap/ROADMAP.md`). Este documento é a especificação para
-implementação, não a implementação em si — nada aqui foi codificado.
+Status: **reconciliada em 2026-08-07, pronta para virar plano de
+implementação**. Item #2 do roadmap de prioridade 2 (`docs/roadmap/ROADMAP.md`).
+Escrita originalmente antes do hardening P0; esta revisão atualiza o que já
+foi resolvido por aquele trabalho (ver `docs/superpowers/plans/2026-08-07-hardening-p0-timezone.md`)
+para não repetir nem contradizer o que já existe no banco. Este documento
+continua sendo a especificação, não a implementação — o código da Agenda em
+si ainda não foi escrito.
 
 ## Problema
 
@@ -16,24 +20,46 @@ no roadmap consolidado.
 ## Entidades afetadas
 
 - `agendamentos` (existente, sem mudança de coluna necessária) — campos:
-  `empresa_id`, `cliente_id` (nullable), `profissional_id`, `servico_id`,
-  `inicio`, `fim`, `status`, `observacoes`.
+  `empresa_id`, `cliente_id` (nullable no banco, **obrigatório na v1 pela
+  Server Action/formulário** — a coluna fica nullable no schema de
+  propósito, para não fechar a porta a um caso futuro tipo walk-in sem
+  cliente cadastrado, mas a v1 em si sempre exige selecionar um), `profissional_id`,
+  `servico_id`, `inicio`, `fim`, `status`, `observacoes`.
 - `profissionais`, `servicos`, `clientes` — só leitura, para popular os
   seletores do formulário de criação.
 - Nenhuma tabela nova proposta para v1.
 
-## Pré-requisito de segurança (bloqueante, não é opcional)
+## Pré-requisito de segurança — **concluído em 2026-08-07**
 
-Antes de expor criação de agendamento, fechar o **risco #2**
-(`docs/architecture/ARCHITECTURE.md#riscos-técnicos`): hoje
-`agendamentos.profissional_id`/`servico_id`/`cliente_id` não validam que a
-linha referenciada pertence à mesma `empresa_id` do agendamento. Assim que
-existe um formulário de criação real (em vez de só a tabela existir sem uso
-prático), esse risco deixa de ser teórico. Ver
-`docs/database/DATABASE.md#risco-2--referências-cross-tenant-não-validadas`
-para as duas abordagens de correção — decisão de qual delas usar fica para
-a fase de implementação, mas **a correção precisa entrar junto com esta
-feature, não depois**.
+O risco #2 (`agendamentos.profissional_id`/`servico_id`/`cliente_id` sem
+validação de que a linha referenciada pertence à mesma `empresa_id`) foi
+fechado no hardening P0, antes desta feature começar — não é mais um
+pré-requisito pendente, é uma garantia já existente no banco que a Agenda
+v1 apenas consome.
+
+**Decisão registrada**: a correção usa **trigger** (`before insert or
+update`), não FK composta — `validar_tenant_agendamento()` em
+`supabase/migrations/20260807034459_validar_tenant_agendamentos.sql`, que
+valida `cliente_id` (quando não nulo), `profissional_id` e `servico_id`
+contra o `empresa_id` do agendamento, com uma mensagem de erro em português
+por campo. A mesma proteção existe para `movimentacoes_caixa.agendamento_id`
+via `validar_tenant_movimentacao_agendamento()`. Nenhuma tabela ganhou
+`unique (id, empresa_id)` nem FK composta — decisão deliberada para não
+tocar em `profissionais`/`servicos`/`clientes` só por causa da Agenda.
+
+**Nota de implementação herdada da revisão final do hardening**: ao
+contrário de `clientes`/`servicos`/`produtos`/`profissionais`, a tabela
+`agendamentos` **não tem** um trigger `set_empresa_id` que preenche o campo
+automaticamente quando o client não envia. Isso é intencional para a Agenda
+v1: a criação de agendamento passa por uma Server Action (não um insert
+direto do client, ver "Fluxo proposto" abaixo), e essa Server Action sempre
+vai buscar o `empresa_id` do usuário autenticado no servidor e enviá-lo
+explicitamente — o mesmo padrão já usado em `caixa/actions.ts`. Não é
+necessário adicionar esse trigger a `agendamentos` só para a Agenda v1.
+
+Também já implementado (não é mais trabalho desta feature, é pré-requisito
+pronto): a exclusion constraint contra sobreposição de horário — ver "Regra
+de conflito" abaixo.
 
 ## Fluxo proposto
 
@@ -57,9 +83,11 @@ feature, não depois**.
 - **AC1**: clicar num horário vazio abre o formulário de criação
   pré-preenchido com o profissional da coluna e o horário da linha
   clicados.
-- **AC2**: o formulário exige cliente (busca entre os já cadastrados) e
-  serviço (a duração do serviço define o fim automaticamente); profissional
-  vem pré-selecionado mas é editável.
+- **AC2**: o formulário exige cliente (busca entre os já cadastrados —
+  **confirmado como obrigatório na v1**, sem opção de agendamento sem
+  cliente vinculado nem criação de cliente novo inline, ver "Fora de
+  escopo") e serviço (a duração do serviço define o fim automaticamente);
+  profissional vem pré-selecionado mas é editável.
 - **AC3**: submeter um horário que sobrepõe outro agendamento não-cancelado
   do mesmo profissional é rejeitado com uma mensagem clara, sem criar linha
   nenhuma.
@@ -69,16 +97,18 @@ feature, não depois**.
 - **AC5**: agendamento criado aparece na grade sem precisar de reload
   manual da página (via `revalidatePath` ou equivalente).
 - **AC6**: é possível cancelar um agendamento existente a partir da grade.
-- **AC7**: a grade continua utilizável (não necessariamente com o mesmo
-  layout) numa tela estreita — formato exato é uma pendência de decisão,
-  ver abaixo.
+- **AC7**: numa tela estreita, a grade é substituída pela visão "um
+  profissional por vez" (seletor de profissional + lista vertical do dia)
+  — ver "UX responsiva" abaixo.
 
 ## Regra de conflito (dupla reserva)
 
-Duas camadas, não uma só:
+Duas camadas — **a camada 1 já está implementada e verificada ao vivo**,
+falta só a camada 2 (que é código de aplicação desta feature, não banco):
 
-1. **Camada de banco (garantia real, protege contra corrida)**: exclusion
-   constraint usando a extensão `btree_gist`:
+1. **Camada de banco — concluída em 2026-08-07.** Exclusion constraint via
+   `btree_gist`, aplicada em
+   `supabase/migrations/20260807035205_prevenir_conflito_agenda.sql`:
 
    ```sql
    create extension if not exists btree_gist;
@@ -92,47 +122,61 @@ Duas camadas, não uma só:
 
    Isso impede a sobreposição **no banco**, mesmo que duas requisições
    cheguem simultaneamente — uma checagem só na aplicação (Server Action)
-   tem uma janela de corrida entre o `select` de conflito e o `insert`.
-2. **Camada de aplicação (UX)**: a Server Action faz o mesmo tipo de
+   tem uma janela de corrida entre o `select` de conflito e o `insert`. Já
+   testado ao vivo com inserts sobrepostos/adjacentes durante o hardening —
+   a Agenda v1 só precisa consumir essa garantia, não recriá-la.
+2. **Camada de aplicação (UX) — ainda não implementada, é trabalho desta
+   feature.** A Server Action `criarAgendamento` deve fazer o mesmo tipo de
    checagem antes de tentar o insert, só para devolver uma mensagem
    amigável (`"Este profissional já tem um agendamento nesse horário."`)
-   em vez de deixar o usuário ver o erro cru da constraint do banco.
+   em vez de deixar o usuário ver o erro cru da constraint do banco
+   (código Postgres de exclusion violation, `23P01`).
 
 Cancelar ou marcar "faltou" libera o horário automaticamente (a constraint
 já exclui esses status via `where`).
 
-## Permissões
+## Permissões — **confirmado em 2026-08-07**
 
-**Pendência de decisão de produto.** Hoje nenhuma tela do sistema restringe
-por `perfis.papel` — todo usuário autenticado da empresa tem acesso igual.
-Não existe ainda conceito de "profissional logado vendo só a própria
-agenda" porque não há fluxo de convite/login para staff (profissional é
-hoje só um registro de cadastro, sem `auth.users` vinculado). Recomendação
-para v1: manter o padrão atual (qualquer usuário autenticado da empresa
-pode criar/editar qualquer agendamento) e tratar "profissional só vê a
-própria agenda" como parte do trabalho futuro de "convite de profissional"
-(já listado no roadmap), não desta feature.
+Decisão do product owner: para v1, **gestor e recepção operam a agenda
+completa** (criar/editar/cancelar qualquer agendamento da empresa) — mesmo
+padrão de acesso já usado em todo o resto do sistema hoje. A restrição de
+"profissional vê só o próprio calendário" fica **modelada, mas não
+implementada**: não existe ainda vínculo entre um `auth.users` e uma linha
+de `profissionais` (profissional hoje é só um registro de cadastro, sem
+login próprio), então não há como aplicar essa restrição de forma real
+ainda. Ela entra junto com o trabalho futuro de "convite de
+profissional/recepção" (já no roadmap), não nesta feature.
 
-## UX responsiva
+## UX responsiva — **fallback confirmado em 2026-08-07**
 
-**Pendência de decisão de produto** (ligada à decisão geral de
-responsividade em `docs/roadmap/ROADMAP.md`). A grade atual
-(`grid-template-columns: 80px repeat(N profissionais, 1fr)`) não funciona
-numa tela estreita com mais de 2-3 profissionais. Proposta de fallback,
-sujeita a validação: abaixo de um breakpoint, trocar a grade por uma visão
-de "um profissional por vez" — seletor de profissional + lista vertical dos
-horários daquele dia. Decisão de qual breakpoint e se esse é o padrão certo
-fica para quando a estratégia responsiva geral do projeto for definida.
+Decisão do product owner: abaixo do breakpoint mobile, a grade
+(`grid-template-columns: 80px repeat(N profissionais, 1fr)` — não funciona
+numa tela estreita com mais de 2-3 profissionais) é substituída pela visão
+**"um profissional por vez"** — seletor de profissional + lista vertical dos
+horários daquele dia. Isso é a implementação responsiva detalhada desta
+feature, conforme já registrado em `docs/roadmap/ROADMAP.md` (a base
+mobile-first geral do projeto — layout, navegação, tabelas, formulários —
+é trabalho separado, sequenciado antes ou em paralelo a esta feature, não
+uma pendência desta spec). O breakpoint exato (ex: `md:` do Tailwind) é
+detalhe de implementação, não decisão de produto em aberto.
 
-## Timezone
+## Timezone — **implementado em 2026-08-07**
 
-Assumido para v1 (não validado com o usuário): **um fuso horário por
-empresa**, não por profissional — coerente com um salão ser um único local
-físico. `inicio`/`fim` continuam `timestamptz` (já corretos, armazenam em
-UTC), a conversão para exibição usa o fuso do navegador do usuário via
-`toLocaleString("pt-BR", ...)` como já é feito em `/relatorios` e `/caixa`
-hoje. **Não** propor uma coluna `empresas.timezone` nem seleção de fuso por
-enquanto — YAGNI até existir um caso real de empresa multi-região.
+Já não é mais uma suposição: **um fuso horário por empresa**, persistido em
+`empresas.timezone` (string IANA, default `America/Sao_Paulo`, coluna
+adicionada em `supabase/migrations/20260807035933_timezone_empresa.sql`).
+`agendamentos.inicio`/`fim` continuam `timestamptz` armazenados em UTC —
+nenhuma mudança de schema necessária para a Agenda v1 nesse ponto.
+
+**Convenção de exibição a seguir** (já estabelecida e documentada em
+`docs/database/DATABASE.md#timezone-e-exibição-de-datas`): como
+`inicio`/`fim` são `timestamptz` genuínos (não `date` puro como
+`v_faturamento_diario.dia`), a Agenda deve formatá-los com o timezone
+*real* da empresa (buscado de `empresas.timezone`, mesmo padrão já usado em
+`caixa/page.tsx`) — **nunca** com o timezone do navegador/runtime, que é
+exatamente o que a fundação de timezone existiu para eliminar. Não usar
+`toLocaleString(...)` sem `timeZone` explícito em nenhum lugar novo desta
+feature.
 
 ## Fora de escopo v1 (explicitamente adiado)
 
@@ -144,36 +188,43 @@ enquanto — YAGNI até existir um caso real de empresa multi-região.
   avançarem.
 - Cálculo de comissão do profissional sobre o agendamento.
 - Notificações/lembretes.
-- Criar cliente novo inline a partir do formulário de agendamento (v1 exige
-  que o cliente já exista, cadastrado via `/clientes`) — candidato natural
-  a fast-follow, mas não necessário para o fluxo funcionar.
+- Criar cliente novo inline a partir do formulário de agendamento —
+  **confirmado**: v1 exige que o cliente já exista, cadastrado via
+  `/clientes`, sem atalho de criação inline. Candidato natural a
+  fast-follow, mas não necessário para o fluxo funcionar.
 
 ## Riscos específicos desta feature
 
 | Risco | Mitigação |
 |---|---|
-| Corrida entre duas criações simultâneas do mesmo profissional/horário | Exclusion constraint no banco (camada 1 da regra de conflito) — não confiar só na checagem da aplicação. |
-| Regressão do risco #2 (referência cross-tenant) se a correção não entrar junto | Tratado como pré-requisito bloqueante desta feature, não item separado a lembrar depois. |
-| Fuso horário incorreto se a empresa operar em múltiplas regiões | Assumido fora de escopo (1 fuso por empresa) — documentado como suposição explícita, não decisão silenciosa. |
-| Grade inutilizável em mobile | Fallback proposto mas não decidido — ver UX responsiva acima. |
+| Corrida entre duas criações simultâneas do mesmo profissional/horário | **Resolvido.** Exclusion constraint no banco (camada 1 da regra de conflito), testada ao vivo no hardening P0. |
+| Regressão do risco #2 (referência cross-tenant) se a correção não entrar junto | **Resolvido.** Trigger `validar_tenant_agendamento` já aplicado antes desta feature começar, não é mais algo a lembrar. |
+| Fuso horário incorreto se a empresa operar em múltiplas regiões | **Resolvido.** `empresas.timezone` implementado; a Agenda só precisa seguir a convenção de exibição já documentada (ver "Timezone" acima), não resolver isso de novo. |
+| Grade inutilizável em mobile | Fallback decidido ("um profissional por vez") — falta implementar, não falta decidir. Ver "UX responsiva" acima. |
 
 ## Plano de implementação (fases)
 
-1. **Banco**: extensão `btree_gist`, exclusion constraint de conflito, e a
-   correção do risco #2 para `agendamentos` (FK composta ou trigger —
-   decidir na implementação com base no que já existir de FK composta em
-   outras tabelas nesse momento).
+1. ~~**Banco**~~ — **não é mais uma fase desta feature.** Extensão
+   `btree_gist`, exclusion constraint de conflito, e a proteção cross-tenant
+   já foram implementadas e aplicadas no hardening P0
+   (`docs/superpowers/plans/2026-08-07-hardening-p0-timezone.md`). A Agenda
+   v1 começa direto na Server Action.
 2. **Server Action de criação**: `criarAgendamento`, validação de tenant +
-   conflito espelhando as constraints do banco (para mensagens amigáveis),
-   `revalidatePath("/agenda")`.
-3. **UI de criação**: clique no slot vazio → formulário → busca de cliente,
-   seleção de serviço (auto-preenche fim), submit.
+   conflito espelhando as constraints do banco (para mensagens amigáveis,
+   incluindo o código `23P01` da exclusion constraint), `revalidatePath("/agenda")`.
+   Busca `empresa_id` do usuário autenticado no servidor (mesmo padrão de
+   `caixa/actions.ts`) — não depende de nenhum trigger `set_empresa_id`.
+3. **UI de criação**: clique no slot vazio → formulário → busca de cliente
+   (obrigatório), seleção de serviço (auto-preenche fim), submit.
 4. **Gestão de status**: alterar status a partir do bloco já criado
    (mínimo viável: cancelar; confirmar/em andamento/concluído podem ser a
    mesma UI reaproveitada).
-5. **Passo responsivo**: aplicar a decisão de fallback mobile quando a
-   estratégia geral estiver definida — não bloqueia as fases 1-4.
+5. **Exibição com timezone correto**: horários da grade e do formulário
+   formatados com `empresas.timezone` (nunca timezone do navegador/runtime)
+   — seguir a convenção já documentada, não é decisão nova.
+6. **Responsivo**: implementar o fallback "um profissional por vez" abaixo
+   do breakpoint mobile — decisão já tomada, esta fase é só a implementação.
 
 Cada fase acima é candidata a virar uma task de um plano de implementação
-formal (`docs/superpowers/plans/`) quando esta spec for aprovada e entrar
-em execução.
+formal (`docs/superpowers/plans/`) — próximo passo depois desta
+reconciliação.
