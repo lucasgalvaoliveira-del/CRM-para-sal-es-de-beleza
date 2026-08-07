@@ -42,13 +42,21 @@ início da Agenda v1 por este critério:
 |---|---|---|
 | Gerar tipos TypeScript do Supabase | — (produtividade + classe de bug) | Pequeno, repetir a cada mudança de schema |
 
-## Prioridade 2 — Próxima feature de produto
+## Prioridade 2 — Agenda e Agendamentos v1 — **concluída em 2026-08-07**
 
-**Agenda e Agendamentos v1** — spec completa em
-`docs/roadmap/AGENDA_AGENDAMENTOS_V1.md`. É o item #2 do "próximos passos"
-original do README, e o que mais outras features dependem (Comissionamento
-precisa de agendamento vinculado a movimentação; Relatórios de ocupação
-precisam de agendamento com status real).
+Spec em `docs/roadmap/AGENDA_AGENDAMENTOS_V1.md`, plano de implementação em
+`docs/superpowers/plans/2026-08-07-agenda-v1.md` (6 tarefas, revisão final
+de branch, e uma rodada de correções pós-revisão — todas com verificação ao
+vivo contra o Supabase real, mesclada em `master`). Era o item #2 do
+"próximos passos" original do README, e o que mais outras features
+dependiam (Comissionamento precisa de agendamento vinculado a movimentação;
+Relatórios de ocupação precisam de agendamento com status real) — essa
+dependência agora está desbloqueada.
+
+Uma lacuna conhecida ficou registrada, não é bloqueante: o shell do app
+(`layout.tsx`/`Sidebar.tsx`) ainda não tem breakpoints responsivos, então a
+visão mobile da Agenda (correta em isolamento) só fica de fato utilizável
+quando "Fundamentos mobile-first" (abaixo, Prioridade 4) for implementado.
 
 ## Prioridade 3 — Itens já conhecidos do README original
 

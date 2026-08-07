@@ -1,12 +1,15 @@
 # Spec — Agenda e Agendamentos v1
 
-Status: **reconciliada em 2026-08-07, pronta para virar plano de
-implementação**. Item #2 do roadmap de prioridade 2 (`docs/roadmap/ROADMAP.md`).
-Escrita originalmente antes do hardening P0; esta revisão atualiza o que já
-foi resolvido por aquele trabalho (ver `docs/superpowers/plans/2026-08-07-hardening-p0-timezone.md`)
-para não repetir nem contradizer o que já existe no banco. Este documento
-continua sendo a especificação, não a implementação — o código da Agenda em
-si ainda não foi escrito.
+Status: **implementada e mesclada em master em 2026-08-07**. Item #2 do
+roadmap de prioridade 2 (`docs/roadmap/ROADMAP.md`). Escrita originalmente
+antes do hardening P0; a reconciliação de 2026-08-07 atualizou o que já
+tinha sido resolvido por aquele trabalho (ver
+`docs/superpowers/plans/2026-08-07-hardening-p0-timezone.md`) para não
+repetir nem contradizer o que já existia no banco. Implementação seguiu
+`docs/superpowers/plans/2026-08-07-agenda-v1.md` (6 tarefas + revisão final
+de branch, todas com verificação ao vivo contra o Supabase real). Este
+documento permanece como a especificação de referência — a implementação
+real é o código em `src/app/(app)/agenda/`.
 
 ## Problema
 
@@ -114,9 +117,9 @@ de conflito" abaixo.
 
 ## Regra de conflito (dupla reserva)
 
-Duas camadas: a de banco, **concluída** no hardening P0; a de aplicação,
-**definida** nesta reconciliação (2026-08-07) e no plano de implementação,
-ainda pendente de execução:
+Duas camadas, **ambas concluídas**: a de banco no hardening P0; a de
+aplicação, implementada na Agenda v1 (2026-08-07,
+`docs/superpowers/plans/2026-08-07-agenda-v1.md`, Task 2):
 
 1. **Camada de banco — concluída em 2026-08-07 (hardening P0).** Exclusion
    constraint via `btree_gist`, aplicada em
@@ -136,13 +139,13 @@ ainda pendente de execução:
    cheguem simultaneamente. Já testado ao vivo com inserts
    sobrepostos/adjacentes durante o hardening — a Agenda v1 só precisa
    consumir essa garantia, não recriá-la.
-2. **Camada de aplicação (UX) — decisão de design confirmada, implementação
-   pendente (ver `docs/superpowers/plans/2026-08-07-agenda-v1.md`, Task 2):
-   sem pré-checagem.** `criarAgendamento` e `atualizarStatusAgendamento` vão
-   fazer **uma única tentativa de escrita** (insert/update) e traduzir o erro
-   `23P01` (exclusion violation) do Postgres para a mensagem amigável
-   `"Este profissional já tem um agendamento nesse horário."` — não haverá
-   nenhum `select` de conflito antes da escrita. Essa é uma decisão
+2. **Camada de aplicação (UX) — implementada, sem pré-checagem.**
+   `criarAgendamento` e `atualizarStatusAgendamento`
+   (`src/app/(app)/agenda/actions.ts`) fazem **uma única tentativa de
+   escrita** (insert/update) e traduzem o erro `23P01` (exclusion
+   violation) do Postgres para a mensagem amigável `"Este profissional já
+   tem um agendamento nesse horário."` — não há nenhum `select` de
+   conflito antes da escrita. Essa é uma decisão
    deliberada, não uma simplificação temporária: um pré-check teria a
    mesma janela de corrida que a exclusion constraint existe pra fechar
    (dois requests podem passar pelo `select` antes de qualquer um dos dois
