@@ -1,51 +1,80 @@
 import { createClient } from "@/lib/supabase/server";
+import AgendaGrade from "./AgendaGrade";
+
+type NomeRelacionado = { nome: string } | { nome: string }[] | null;
+type AgendamentoRow = {
+  id: string;
+  profissional_id: string;
+  inicio: string;
+  fim: string;
+  status: string;
+  clientes: NomeRelacionado;
+  servicos: NomeRelacionado;
+};
+type Slot = { horario: string; inicio: string; fim: string };
+type Limites = { inicio: string; fim: string };
 
 export default async function AgendaPage() {
   const supabase = await createClient();
-  const { data: profissionais } = await supabase
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  let timezone = "America/Sao_Paulo";
+  if (user) {
+    const { data: perfil } = await supabase
+      .from("perfis")
+      .select("empresas(timezone)")
+      .eq("id", user.id)
+      .single();
+    const empresa = Array.isArray(perfil?.empresas) ? perfil?.empresas[0] : perfil?.empresas;
+    timezone = empresa?.timezone ?? timezone;
+  }
+
+  const dataLocal = new Date().toLocaleDateString("en-CA", { timeZone: timezone });
+
+  const { data: limitesData } = await supabase.rpc("limites_dia_local", { tz: timezone }).single();
+  const limites = limitesData as Limites | null;
+
+  const { data: horariosData } = await supabase.rpc("horarios_do_dia", {
+    tz: timezone,
+    data: dataLocal,
+  });
+  const horarios: Slot[] = horariosData ?? [];
+
+  const { data: profissionaisData } = await supabase
     .from("profissionais")
     .select("id, nome")
     .eq("ativo", true)
     .order("nome");
 
-  const horarios = Array.from({ length: 21 }, (_, i) => {
-    const totalMin = 8 * 60 + i * 30; // 08:00 até 18:30
-    const h = String(Math.floor(totalMin / 60)).padStart(2, "0");
-    const m = String(totalMin % 60).padStart(2, "0");
-    return `${h}:${m}`;
-  });
+  const { data: clientesData } = await supabase.from("clientes").select("id, nome").order("nome");
 
-  const colunas = profissionais && profissionais.length > 0 ? profissionais : [{ id: "placeholder", nome: "Cadastre um profissional" }];
+  const { data: servicosData } = await supabase
+    .from("servicos")
+    .select("id, nome, duracao_minutos")
+    .eq("ativo", true)
+    .order("nome");
+
+  let agendamentos: AgendamentoRow[] = [];
+  if (limites) {
+    const { data } = await supabase
+      .from("agendamentos")
+      .select("id, profissional_id, inicio, fim, status, clientes(nome), servicos(nome)")
+      .lt("inicio", limites.fim)
+      .gt("fim", limites.inicio)
+      .order("inicio");
+    agendamentos = (data ?? []) as AgendamentoRow[];
+  }
 
   return (
-    <div>
-      <h1 className="font-display text-3xl text-plum-950">Agenda</h1>
-      <p className="text-ink-900/60 mt-1">Visão do dia por profissional.</p>
-
-      <div className="mt-8 rounded-2xl border border-plum-400/20 bg-white overflow-hidden">
-        <div className="grid" style={{ gridTemplateColumns: `80px repeat(${colunas.length}, 1fr)` }}>
-          <div className="bg-ivory-100" />
-          {colunas.map((p) => (
-            <div key={p.id} className="bg-ivory-100 px-4 py-3 text-sm font-medium text-plum-800 border-l border-plum-400/10">
-              {p.nome}
-            </div>
-          ))}
-
-          {horarios.map((h) => (
-            <>
-              <div key={`h-${h}`} className="px-3 py-3 text-xs text-ink-900/50 border-t border-plum-400/10">
-                {h}
-              </div>
-              {colunas.map((p) => (
-                <div
-                  key={`${p.id}-${h}`}
-                  className="border-t border-l border-plum-400/10 min-h-10 hover:bg-sage-300/10 transition-colors"
-                />
-              ))}
-            </>
-          ))}
-        </div>
-      </div>
-    </div>
+    <AgendaGrade
+      dataLocal={dataLocal}
+      horarios={horarios}
+      profissionais={profissionaisData ?? []}
+      clientes={clientesData ?? []}
+      servicos={servicosData ?? []}
+      agendamentos={agendamentos}
+    />
   );
 }
