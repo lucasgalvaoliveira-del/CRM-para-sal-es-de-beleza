@@ -68,12 +68,22 @@ de conflito" abaixo.
 2. Abre um formulário (modal ou painel lateral — decisão de UI na
    implementação) pré-preenchido com profissional e horário do clique.
 3. Usuário busca e seleciona um cliente existente (busca por nome).
-4. Usuário seleciona um serviço — a duração do serviço
-   (`servicos.duracao_minutos`) preenche automaticamente o horário de fim
-   (`inicio + duracao_minutos`), editável manualmente se necessário.
-5. Ao salvar, a Server Action valida (nesta ordem): serviço/profissional/
-   cliente pertencem à empresa do usuário → não há sobreposição de horário
-   para o mesmo profissional → cria o agendamento com `status = 'agendado'`.
+4. Usuário seleciona um serviço — o horário de fim é `inicio +
+   servicos.duracao_minutos`. **Confirmado para v1**: fim não é editável
+   manualmente (a spec original previa isso, mas nem o formulário nem o
+   plano de implementação ofereciam esse campo — a duração fica presa ao
+   serviço selecionado). Editar a duração manualmente é um fast-follow
+   natural, não v1. **A duração nunca é enviada pelo client**: a Server
+   Action busca `duracao_minutos` no servidor a partir do `servicoId`, para
+   um usuário não conseguir adulterar o valor e criar um atendimento com
+   duração arbitrária.
+5. Ao salvar, a Server Action busca a duração do serviço no servidor,
+   calcula o fim, e tenta o insert diretamente — sem pré-checagem de
+   conflito. A validação de tenant (trigger) e de sobreposição (exclusion
+   constraint) já estão garantidas pelo banco; a Server Action só traduz o
+   erro `23P01` (violação da exclusion constraint) para uma mensagem
+   amigável caso a escrita falhe. Cria o agendamento com `status =
+   'agendado'` quando bem-sucedida.
 6. O bloco aparece na grade imediatamente, com cor/estilo por status.
 7. Usuário pode alterar o status do agendamento (ao menos: confirmar,
    cancelar) a partir de um clique no bloco já criado.
@@ -86,8 +96,9 @@ de conflito" abaixo.
 - **AC2**: o formulário exige cliente (busca entre os já cadastrados —
   **confirmado como obrigatório na v1**, sem opção de agendamento sem
   cliente vinculado nem criação de cliente novo inline, ver "Fora de
-  escopo") e serviço (a duração do serviço define o fim automaticamente);
-  profissional vem pré-selecionado mas é editável.
+  escopo") e serviço (a duração do serviço define o fim automaticamente,
+  **fixa, não editável na v1** — ver "Fluxo proposto"); profissional vem
+  pré-selecionado mas é editável.
 - **AC3**: submeter um horário que sobrepõe outro agendamento não-cancelado
   do mesmo profissional é rejeitado com uma mensagem clara, sem criar linha
   nenhuma.
@@ -103,11 +114,11 @@ de conflito" abaixo.
 
 ## Regra de conflito (dupla reserva)
 
-Duas camadas — **a camada 1 já está implementada e verificada ao vivo**,
-falta só a camada 2 (que é código de aplicação desta feature, não banco):
+Duas camadas — **ambas concluídas**: a de banco no hardening P0, a de
+aplicação na reconciliação deste plano (2026-08-07):
 
-1. **Camada de banco — concluída em 2026-08-07.** Exclusion constraint via
-   `btree_gist`, aplicada em
+1. **Camada de banco — concluída em 2026-08-07 (hardening P0).** Exclusion
+   constraint via `btree_gist`, aplicada em
    `supabase/migrations/20260807035205_prevenir_conflito_agenda.sql`:
 
    ```sql
@@ -121,16 +132,24 @@ falta só a camada 2 (que é código de aplicação desta feature, não banco):
    ```
 
    Isso impede a sobreposição **no banco**, mesmo que duas requisições
-   cheguem simultaneamente — uma checagem só na aplicação (Server Action)
-   tem uma janela de corrida entre o `select` de conflito e o `insert`. Já
-   testado ao vivo com inserts sobrepostos/adjacentes durante o hardening —
-   a Agenda v1 só precisa consumir essa garantia, não recriá-la.
-2. **Camada de aplicação (UX) — ainda não implementada, é trabalho desta
-   feature.** A Server Action `criarAgendamento` deve fazer o mesmo tipo de
-   checagem antes de tentar o insert, só para devolver uma mensagem
-   amigável (`"Este profissional já tem um agendamento nesse horário."`)
-   em vez de deixar o usuário ver o erro cru da constraint do banco
-   (código Postgres de exclusion violation, `23P01`).
+   cheguem simultaneamente. Já testado ao vivo com inserts
+   sobrepostos/adjacentes durante o hardening — a Agenda v1 só precisa
+   consumir essa garantia, não recriá-la.
+2. **Camada de aplicação (UX) — decisão de design confirmada: sem
+   pré-checagem.** `criarAgendamento` e `atualizarStatusAgendamento` fazem
+   **uma única tentativa de escrita** (insert/update) e traduzem o erro
+   `23P01` (exclusion violation) do Postgres para a mensagem amigável
+   `"Este profissional já tem um agendamento nesse horário."` — não existe
+   nenhum `select` de conflito antes da escrita. Essa é uma decisão
+   deliberada, não uma simplificação temporária: um pré-check teria a
+   mesma janela de corrida que a exclusion constraint existe pra fechar
+   (dois requests podem passar pelo `select` antes de qualquer um dos dois
+   fazer o `insert`), então ele não adicionaria garantia nenhuma — só
+   duplicaria a checagem. Mesmo padrão já usado e aprovado em `abrirCaixa`
+   (hardening P0) para o índice único de caixa aberto.
+   `atualizarStatusAgendamento` precisa desse mesmo tratamento porque
+   reativar um agendamento `cancelado`/`faltou` pode reconflitar com algo
+   criado nesse meio-tempo.
 
 Cancelar ou marcar "faltou" libera o horário automaticamente (a constraint
 já exclui esses status via `where`).
