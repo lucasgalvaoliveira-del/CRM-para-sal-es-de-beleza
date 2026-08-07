@@ -96,13 +96,15 @@ que não é responsivo** — ver seção abaixo.
 
 ## Responsividade
 
-**Não definida ainda** — zero classes `sm:`/`md:`/`lg:`/`xl:` existem hoje
-em todo o projeto (`Sidebar` é `w-60` fixo, módulos usam
-`grid-cols-[1fr_320px]` fixo). Decisão de produto pendente sobre a
-estratégia (ver `docs/roadmap/ROADMAP.md#pendências-de-decisão-de-produto`)
-— quando definida, esta seção deve documentar os breakpoints escolhidos e o
-padrão de componente (ex: card empilha abaixo de X, tabela vira lista de
-cards, etc).
+Breakpoint padrão do projeto: **`md:` (768px) do Tailwind**. Estabelecido na
+Agenda v1 (`docs/roadmap/AGENDA_AGENDAMENTOS_V1.md`) — abaixo de `md:`, um
+componente com muitas colunas (ex: a grade da Agenda, uma por profissional)
+troca para uma visão de lista/seleção única em vez de tentar espremer a
+grade. Padrão a seguir em outros módulos que crescerem além do layout fixo
+atual (`grid-cols-[1fr_320px]`) — não é obrigatório retrofitar módulos
+simples que já funcionam bem numa única largura, mas qualquer tela nova
+com mais de ~3 colunas de dados variável deve nascer responsiva usando
+esse mesmo breakpoint.
 
 ## Idioma
 
