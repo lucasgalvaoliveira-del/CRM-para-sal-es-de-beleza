@@ -3,10 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { criarAgendamento } from "./actions";
-
-type Cliente = { id: string; nome: string };
-type Servico = { id: string; nome: string; duracao_minutos: number };
-type Profissional = { id: string; nome: string };
+import type { Cliente, Profissional, Servico } from "./types";
 
 export default function NovoAgendamentoForm({
   dataLocal,

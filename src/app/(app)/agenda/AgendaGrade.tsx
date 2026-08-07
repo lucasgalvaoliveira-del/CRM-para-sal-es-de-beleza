@@ -1,34 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import NovoAgendamentoForm from "./NovoAgendamentoForm";
 import AgendamentoBloco from "./AgendamentoBloco";
-
-type Profissional = { id: string; nome: string };
-type Cliente = { id: string; nome: string };
-type Servico = { id: string; nome: string; duracao_minutos: number };
-type Slot = { horario: string; inicio: string; fim: string };
-type NomeRelacionado = { nome: string } | { nome: string }[] | null;
-type AgendamentoRow = {
-  id: string;
-  profissional_id: string;
-  inicio: string;
-  fim: string;
-  status: string;
-  clientes: NomeRelacionado;
-  servicos: NomeRelacionado;
-};
+import type { AgendamentoRow, Cliente, NomeRelacionado, Profissional, Servico, Slot } from "./types";
 
 function nomeRelacionado(valor: NomeRelacionado): string {
   if (!valor) return "—";
   return Array.isArray(valor) ? (valor[0]?.nome ?? "—") : valor.nome;
 }
 
-// Sobreposição real de intervalos: usada tanto pra decidir se um slot está
-// ocupado quanto (na página) pra filtrar quais agendamentos pertencem ao
-// dia. Compara timestamps reais (epoch), nunca strings de horário local —
-// é assim que um serviço de 60min que começa num slot cobre corretamente
-// o slot seguinte também.
+// Sobreposição real de intervalos — usada só aqui dentro (AgendaGrade),
+// por agendamentoNoSlot, pra decidir se um agendamento ocupa um dado slot.
+// O filtro "quais agendamentos pertencem ao dia" é feito em page.tsx via
+// PostgREST (.lt()/.gt() contra os limites do dia local), não por esta
+// função. Compara timestamps reais (epoch), nunca strings de horário
+// local — é assim que um serviço de 60min que começa num slot cobre
+// corretamente o slot seguinte também.
 function sobrepoe(aInicio: string, aFim: string, bInicio: string, bFim: string): boolean {
   return new Date(aInicio).getTime() < new Date(bFim).getTime() && new Date(aFim).getTime() > new Date(bInicio).getTime();
 }
@@ -59,10 +47,29 @@ export default function AgendaGrade({
   // seguinte que ele ainda ocupa (ex: serviço de 60min cobre 2 slots de
   // 30min). Compara [inicio,fim) reais de ambos os lados, nunca horário
   // local formatado.
+  //
+  // Prefere um agendamento ativo (bloqueia o slot); um cancelado/faltou
+  // só aparece se não houver nenhum ativo sobrepondo o mesmo slot —
+  // assim o slot libera pra novo agendamento, mas o cancelado ainda
+  // pode ser visto/reaberto se for o único ocupando aquele horário.
   function agendamentoNoSlot(profissionalId: string, slot: Slot) {
-    return agendamentos.find(
+    const candidatos = agendamentos.filter(
       (a) => a.profissional_id === profissionalId && sobrepoe(a.inicio, a.fim, slot.inicio, slot.fim)
     );
+    return (
+      candidatos.find((a) => a.status !== "cancelado" && a.status !== "faltou") ??
+      candidatos[0]
+    );
+  }
+
+  // Um slot está de fato ocupado (bloqueia a criação de um novo
+  // agendamento) só quando o agendamento retornado por agendamentoNoSlot é
+  // ativo. Como agendamentoNoSlot sempre prefere devolver um ativo quando
+  // existe um sobrepondo o slot, checar o status do próprio retorno basta —
+  // não precisa de uma segunda busca: se o retornado ainda é
+  // cancelado/faltou, é porque nenhum ativo sobrepõe este slot.
+  function slotOcupado(agendamento: AgendamentoRow | undefined) {
+    return !!agendamento && agendamento.status !== "cancelado" && agendamento.status !== "faltou";
   }
 
   // Um slot "é o início" de um agendamento quando o inicio real do
@@ -79,6 +86,18 @@ export default function AgendaGrade({
   // oferece horários dessa mesma lista). Revisitar se essas premissas
   // mudarem (horário comercial configurável, serviço muito longo perto do
   // fechamento).
+  //
+  // Nota à parte: antes de agendamentoNoSlot preferir um ativo (ver acima),
+  // um cancelado/faltou com `inicio` mais cedo podia "sombrear" um ativo
+  // sobrepondo o mesmo slot — o `.find()` sem preferência de status podia
+  // devolver o cancelado em todo slot que ambos sobrepusessem, inclusive no
+  // slot de início do ativo, deixando o ativo sem nenhum slot onde
+  // slotEhInicio() fosse satisfeita pra ele. Isso não dependia do horário
+  // comercial fixo, então já era alcançável dentro do expediente normal.
+  // Com a preferência por ativo, esse caminho está fechado: o ativo é
+  // sempre devolvido quando sobrepõe o slot, então sempre tem seu slot de
+  // início corretamente identificado. A limitação documentada acima (limite
+  // do expediente) é a única que permanece.
   function slotEhInicio(agendamento: AgendamentoRow, slot: Slot) {
     const inicioMs = new Date(agendamento.inicio).getTime();
     return inicioMs >= new Date(slot.inicio).getTime() && inicioMs < new Date(slot.fim).getTime();
@@ -108,8 +127,8 @@ export default function AgendaGrade({
           ))}
 
           {horarios.map((slot) => (
-            <>
-              <div key={`h-${slot.horario}`} className="px-3 py-3 text-xs text-ink-900/50 border-t border-plum-400/10">
+            <Fragment key={slot.horario}>
+              <div className="px-3 py-3 text-xs text-ink-900/50 border-t border-plum-400/10">
                 {slot.horario}
               </div>
               {colunas.map((p) => {
@@ -119,7 +138,7 @@ export default function AgendaGrade({
                   <div
                     key={`${p.id}-${slot.horario}`}
                     className="border-t border-l border-plum-400/10 min-h-10 hover:bg-sage-300/10 transition-colors"
-                    onClick={() => !agendamento && abrirFormulario(p.id, slot.horario)}
+                    onClick={() => !slotOcupado(agendamento) && abrirFormulario(p.id, slot.horario)}
                   >
                     {agendamento && ehInicio && (
                       <AgendamentoBloco
@@ -137,7 +156,7 @@ export default function AgendaGrade({
                   </div>
                 );
               })}
-            </>
+            </Fragment>
           ))}
         </div>
       </div>
@@ -165,7 +184,7 @@ export default function AgendaGrade({
               <div
                 key={slot.horario}
                 className="flex items-center gap-3 px-4 py-3 hover:bg-sage-300/10 transition-colors"
-                onClick={() => !agendamento && abrirFormulario(profissionalMobile, slot.horario)}
+                onClick={() => !slotOcupado(agendamento) && abrirFormulario(profissionalMobile, slot.horario)}
               >
                 <span className="text-xs text-ink-900/50 w-12 shrink-0">{slot.horario}</span>
                 {agendamento && ehInicio && (

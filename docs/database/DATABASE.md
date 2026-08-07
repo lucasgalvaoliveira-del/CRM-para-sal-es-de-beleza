@@ -66,6 +66,28 @@ diferente na UI:**
   não se aplica a um `timestamptz` genuíno, que precisa do timezone real
   para mostrar a hora local correta.
 
+**Funções auxiliares de timezone (`supabase/migrations/20260807134140_agenda_funcoes_timezone.sql`):**
+a regra central é que **toda conversão local↔UTC acontece dentro do
+Postgres, nunca em TypeScript** (client ou server) — nenhum código monta ou
+desmonta um instante a partir de data+hora local fora dessas funções. Elas
+existem pra Agenda v1 mas não são específicas dela; qualquer feature nova
+que precise desse tipo de conversão deve reusá-las em vez de recalcular
+timezone no client.
+
+- `limites_dia_local(tz, referencia)` — devolve o intervalo `[inicio, fim)`
+  em UTC de um dia de calendário completo no timezone `tz` (início
+  inclusivo, fim exclusivo).
+- `instante_local(tz, data, hora)` — converte uma data + horário de parede
+  no timezone `tz` no instante UTC (`timestamptz`) correspondente.
+- `horarios_do_dia(tz, data, hora_inicial, hora_final, intervalo_minutos)`
+  — gera os slots de horário de um dia (padrão 08:00–18:00, passo de 30min)
+  já com os limites `[inicio, fim)` reais de cada slot calculados em UTC.
+
+Nenhuma das três lança erro em horário ambíguo/inexistente por DST — resolve
+sempre segundo as regras de tzdata (comportamento testado ao vivo contra
+`America/New_York`; irrelevante para o timezone default do projeto,
+`America/Sao_Paulo`, que não observa DST desde 2019).
+
 ## RLS e multi-tenancy
 
 Toda tabela de negócio tem `enable row level security` + uma policy

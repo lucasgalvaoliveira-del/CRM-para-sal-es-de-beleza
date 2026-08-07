@@ -1,17 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import AgendaGrade from "./AgendaGrade";
+import type { AgendamentoRow, Slot } from "./types";
 
-type NomeRelacionado = { nome: string } | { nome: string }[] | null;
-type AgendamentoRow = {
-  id: string;
-  profissional_id: string;
-  inicio: string;
-  fim: string;
-  status: string;
-  clientes: NomeRelacionado;
-  servicos: NomeRelacionado;
-};
-type Slot = { horario: string; inicio: string; fim: string };
 type Limites = { inicio: string; fim: string };
 
 export default async function AgendaPage() {
@@ -33,13 +23,17 @@ export default async function AgendaPage() {
 
   const dataLocal = new Date().toLocaleDateString("en-CA", { timeZone: timezone });
 
-  const { data: limitesData } = await supabase.rpc("limites_dia_local", { tz: timezone }).single();
+  const { data: limitesData, error: erroLimites } = await supabase
+    .rpc("limites_dia_local", { tz: timezone })
+    .single();
+  if (erroLimites) console.error("Erro ao buscar limites_dia_local:", erroLimites);
   const limites = limitesData as Limites | null;
 
-  const { data: horariosData } = await supabase.rpc("horarios_do_dia", {
+  const { data: horariosData, error: erroHorarios } = await supabase.rpc("horarios_do_dia", {
     tz: timezone,
     data: dataLocal,
   });
+  if (erroHorarios) console.error("Erro ao buscar horarios_do_dia:", erroHorarios);
   const horarios: Slot[] = horariosData ?? [];
 
   const { data: profissionaisData } = await supabase
@@ -58,12 +52,13 @@ export default async function AgendaPage() {
 
   let agendamentos: AgendamentoRow[] = [];
   if (limites) {
-    const { data } = await supabase
+    const { data, error: erroAgendamentos } = await supabase
       .from("agendamentos")
       .select("id, profissional_id, inicio, fim, status, clientes(nome), servicos(nome)")
       .lt("inicio", limites.fim)
       .gt("fim", limites.inicio)
       .order("inicio");
+    if (erroAgendamentos) console.error("Erro ao buscar agendamentos:", erroAgendamentos);
     agendamentos = (data ?? []) as AgendamentoRow[];
   }
 

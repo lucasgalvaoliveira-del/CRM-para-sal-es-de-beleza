@@ -229,7 +229,26 @@ feature.
   muito longo pudesse ser agendado perto do fechamento. Tratamento
   deliberadamente adiado (mesmo critério já aplicado ao caso de horário
   ambíguo por DST nas funções SQL do Task 1): documentar, não adicionar
-  lógica defensiva sem alcançabilidade nem testes.
+  lógica defensiva sem alcançabilidade nem testes. **Atualização (fix final
+  de revisão):** existia um segundo caminho pra essa mesma limitação, via
+  `agendamentoNoSlot`, que não dependia do horário comercial fixo — um
+  cancelado/faltou com `inicio` mais cedo podia "sombrear" um ativo
+  sobrepondo o mesmo slot num `.find()` sem preferência de status,
+  deixando o ativo sem nenhum slot onde `slotEhInicio()` fosse satisfeita.
+  Esse caminho foi fechado junto com a correção de cancelado/faltou
+  bloqueando o slot (ver item de liberação de horário abaixo):
+  `agendamentoNoSlot` agora sempre prefere devolver um ativo quando ele
+  sobrepõe o slot, então a limitação acima (limite do expediente) volta a
+  ser a única via de acesso a esse caso.
+
+- **Grade/lista responsiva da Agenda depende do shell do app também ficar
+  responsivo**: o split `md:` (grade em telas médias+, lista "um
+  profissional por vez" abaixo disso) está correto isoladamente, mas
+  `layout.tsx`/`Sidebar.tsx` ainda não têm nenhum breakpoint `md:` — a
+  sidebar é `w-60` fixa e a área de conteúdo tem padding fixo, então numa
+  tela de celular real a lista mobile da Agenda ainda renderiza dentro de
+  uma coluna estreita demais. Gap pré-existente, não desta feature — já
+  rastreado como "Fundamentos mobile-first" em `docs/roadmap/ROADMAP.md`.
 
 ## Riscos específicos desta feature
 
