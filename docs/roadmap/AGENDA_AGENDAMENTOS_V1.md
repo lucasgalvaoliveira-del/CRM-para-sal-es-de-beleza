@@ -114,8 +114,9 @@ de conflito" abaixo.
 
 ## Regra de conflito (dupla reserva)
 
-Duas camadas — **ambas concluídas**: a de banco no hardening P0, a de
-aplicação na reconciliação deste plano (2026-08-07):
+Duas camadas: a de banco, **concluída** no hardening P0; a de aplicação,
+**definida** nesta reconciliação (2026-08-07) e no plano de implementação,
+ainda pendente de execução:
 
 1. **Camada de banco — concluída em 2026-08-07 (hardening P0).** Exclusion
    constraint via `btree_gist`, aplicada em
@@ -135,11 +136,12 @@ aplicação na reconciliação deste plano (2026-08-07):
    cheguem simultaneamente. Já testado ao vivo com inserts
    sobrepostos/adjacentes durante o hardening — a Agenda v1 só precisa
    consumir essa garantia, não recriá-la.
-2. **Camada de aplicação (UX) — decisão de design confirmada: sem
-   pré-checagem.** `criarAgendamento` e `atualizarStatusAgendamento` fazem
-   **uma única tentativa de escrita** (insert/update) e traduzem o erro
+2. **Camada de aplicação (UX) — decisão de design confirmada, implementação
+   pendente (ver `docs/superpowers/plans/2026-08-07-agenda-v1.md`, Task 2):
+   sem pré-checagem.** `criarAgendamento` e `atualizarStatusAgendamento` vão
+   fazer **uma única tentativa de escrita** (insert/update) e traduzir o erro
    `23P01` (exclusion violation) do Postgres para a mensagem amigável
-   `"Este profissional já tem um agendamento nesse horário."` — não existe
+   `"Este profissional já tem um agendamento nesse horário."` — não haverá
    nenhum `select` de conflito antes da escrita. Essa é uma decisão
    deliberada, não uma simplificação temporária: um pré-check teria a
    mesma janela de corrida que a exclusion constraint existe pra fechar
