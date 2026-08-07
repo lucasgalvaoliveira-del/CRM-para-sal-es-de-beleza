@@ -214,6 +214,23 @@ feature.
   `/clientes`, sem atalho de criação inline. Candidato natural a
   fast-follow, mas não necessário para o fluxo funcionar.
 
+## Limitações conhecidas (v1)
+
+- **`slotEhInicio` e agendamentos com início anterior ao primeiro slot do
+  dia** (`AgendaGrade.tsx`): a grade só renderiza o bloco completo e
+  clicável de um agendamento no slot onde seu `inicio` real cai; qualquer
+  outro slot que ele sobreponha mostra apenas o preenchimento mudo "···".
+  Se um agendamento tivesse `inicio` anterior ao primeiro slot visível do
+  dia, nenhum slot satisfaria essa condição e o agendamento se tornaria
+  totalmente não-interativo naquele dia. **Não alcançável hoje** — horário
+  comercial fixo 08:00–18:00 em `horarios_do_dia`, e o formulário de
+  criação só oferece horários dessa mesma lista — mas passaria a ser
+  possível se o horário comercial se tornasse configurável ou um serviço
+  muito longo pudesse ser agendado perto do fechamento. Tratamento
+  deliberadamente adiado (mesmo critério já aplicado ao caso de horário
+  ambíguo por DST nas funções SQL do Task 1): documentar, não adicionar
+  lógica defensiva sem alcançabilidade nem testes.
+
 ## Riscos específicos desta feature
 
 | Risco | Mitigação |

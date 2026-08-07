@@ -48,11 +48,11 @@ export default function AgendaGrade({
   servicos: Servico[];
   agendamentos: AgendamentoRow[];
 }) {
-  const [slotSelecionado, setSlotSelecionado] = useState<{ profissionalId: string; horario: string } | null>(null);
-  const [profissionalMobile, setProfissionalMobile] = useState(profissionais[0]?.id ?? "");
-
   const colunas =
     profissionais.length > 0 ? profissionais : [{ id: "placeholder", nome: "Cadastre um profissional" }];
+
+  const [slotSelecionado, setSlotSelecionado] = useState<{ profissionalId: string; horario: string } | null>(null);
+  const [profissionalMobile, setProfissionalMobile] = useState(colunas[0].id);
 
   // Encontra o agendamento que sobrepõe este slot pra este profissional —
   // cobre tanto o slot em que o agendamento começa quanto qualquer slot
@@ -70,6 +70,15 @@ export default function AgendaGrade({
   // slot específico — usado pra decidir se este slot renderiza o bloco
   // completo (clicável, com menu de status) ou só um preenchimento mudo
   // indicando "continua" (ainda ocupado, mas não repete o botão/menu).
+  //
+  // Limitação conhecida (hoje inalcançável): se o `inicio` real de um
+  // agendamento for anterior ao primeiro slot visível do dia, nenhum slot
+  // satisfaz slotEhInicio() e o bloco completo nunca é renderizado nesse
+  // dia — só o preenchimento "···". Não alcançável hoje (horário comercial
+  // fixo 08:00-18:00 em horarios_do_dia, e o formulário de criação só
+  // oferece horários dessa mesma lista). Revisitar se essas premissas
+  // mudarem (horário comercial configurável, serviço muito longo perto do
+  // fechamento).
   function slotEhInicio(agendamento: AgendamentoRow, slot: Slot) {
     const inicioMs = new Date(agendamento.inicio).getTime();
     return inicioMs >= new Date(slot.inicio).getTime() && inicioMs < new Date(slot.fim).getTime();
