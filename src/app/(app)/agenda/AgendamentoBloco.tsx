@@ -30,12 +30,18 @@ export default function AgendamentoBloco({
 }) {
   const router = useRouter();
   const [menuAberto, setMenuAberto] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function mudarStatus(status: string) {
     setMenuAberto(false);
     startTransition(async () => {
-      await atualizarStatusAgendamento(agendamento.id, status);
+      const res = await atualizarStatusAgendamento(agendamento.id, status);
+      if (res.error) {
+        setErro(res.error);
+        return;
+      }
+      setErro(null);
       router.refresh();
     });
   }
@@ -47,6 +53,7 @@ export default function AgendamentoBloco({
         onClick={(e) => {
           e.stopPropagation();
           setMenuAberto((v) => !v);
+          if (!menuAberto) setErro(null);
         }}
         disabled={pending}
         className={`w-full h-full text-left px-2 py-1 text-xs rounded ${STATUS_COR[agendamento.status as StatusAgendamento] ?? "bg-plum-400/20 text-plum-800"}`}
@@ -54,6 +61,8 @@ export default function AgendamentoBloco({
         <span className="block font-medium truncate">{agendamento.clienteNome}</span>
         <span className="block truncate opacity-80">{agendamento.servicoNome}</span>
       </button>
+
+      {erro && <p className="text-xs text-red-600 mt-1">{erro}</p>}
 
       {menuAberto && (
         <div className="absolute z-10 mt-1 w-40 rounded-lg border border-plum-400/20 bg-white shadow-lg py-1">
