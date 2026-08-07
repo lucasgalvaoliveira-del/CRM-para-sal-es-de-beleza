@@ -5,6 +5,21 @@ import NovaMovimentacaoForm from "./NovaMovimentacaoForm";
 export default async function CaixaPage() {
   const supabase = await createClient();
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  let timezone = "America/Sao_Paulo";
+  if (user) {
+    const { data: perfil } = await supabase
+      .from("perfis")
+      .select("empresas(timezone)")
+      .eq("id", user.id)
+      .single();
+    const empresa = Array.isArray(perfil?.empresas) ? perfil?.empresas[0] : perfil?.empresas;
+    timezone = empresa?.timezone ?? timezone;
+  }
+
   const { data: caixaAberto } = await supabase
     .from("caixas")
     .select("id, aberto_em, valor_abertura")
@@ -74,7 +89,7 @@ export default async function CaixaPage() {
                 {movimentacoes.map((m) => (
                   <tr key={m.id} className="border-t border-plum-400/10">
                     <td className="px-4 py-3 text-ink-900/60">
-                      {new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                      {new Date(m.criado_em).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", timeZone: timezone })}
                     </td>
                     <td className="px-4 py-3 capitalize">{m.tipo}</td>
                     <td className="px-4 py-3 capitalize text-ink-900/70">{m.categoria}</td>
