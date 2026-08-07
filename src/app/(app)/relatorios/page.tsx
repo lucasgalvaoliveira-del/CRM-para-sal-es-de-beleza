@@ -3,21 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 export default async function RelatoriosPage() {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  let timezone = "America/Sao_Paulo";
-  if (user) {
-    const { data: perfil } = await supabase
-      .from("perfis")
-      .select("empresas(timezone)")
-      .eq("id", user.id)
-      .single();
-    const empresa = Array.isArray(perfil?.empresas) ? perfil?.empresas[0] : perfil?.empresas;
-    timezone = empresa?.timezone ?? timezone;
-  }
-
   const { data: faturamento, error } = await supabase
     .from("v_faturamento_diario")
     .select("dia, total_servicos, total_produtos, total_entradas, total_saidas")
