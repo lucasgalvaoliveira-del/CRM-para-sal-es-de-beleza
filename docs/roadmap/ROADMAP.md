@@ -20,18 +20,21 @@ prioridade.
 
 ## Prioridade 0 — Bloqueadores antes da Agenda v1 (definido em 2026-08-07)
 
-Classificados como bloqueantes pelo product owner — nenhum trabalho de
-Agenda v1 começa antes destes 5 itens estarem resolvidos:
+Classificados como bloqueantes pelo product owner — **todos os itens abaixo
+foram resolvidos em 2026-08-07** (ver
+`docs/superpowers/plans/2026-08-07-hardening-p0-timezone.md` e o ledger em
+`.superpowers/sdd/2026-08-07-hardening-p0-timezone/`); nada mais bloqueia o
+início da Agenda v1 por este critério:
 
 | Item | Risco que resolve | Onde |
 |---|---|---|
-| RLS de `perfis`: impedir escalada de papel e alteração indevida entre usuários | #8 | policy `crud_perfis` |
-| Restringir `criar_empresa_e_perfil` a usuários autenticados | #10 | função `criar_empresa_e_perfil` |
-| Corrigir obtenção de perfil/empresa no caixa para vincular explicitamente ao usuário autenticado | #9 | `caixa/actions.ts:8` |
+| RLS de `perfis`: impedir escalada de papel e alteração indevida entre usuários — **feito** | #8 | policy `crud_perfis` → `select_perfis_da_empresa`/`update_proprio_perfil` + trigger `bloquear_escalada_papel`, migration `20260807033342_harden_perfis_rls.sql` |
+| Restringir `criar_empresa_e_perfil` a usuários autenticados — **feito** | #10 | função `criar_empresa_e_perfil`, migration `20260807034032_restrict_criar_empresa_e_perfil.sql` |
+| Corrigir obtenção de perfil/empresa no caixa para vincular explicitamente ao usuário autenticado — **feito** | #9 | `caixa/actions.ts` |
 | Migrations versionadas — **feito** (Supabase CLI adotado, ver `docs/database/DATABASE.md#estratégia-de-migrations`) | #1 | `supabase/migrations/` |
-| Proteção cross-tenant em `agendamentos` (via migration) | #2 | `agendamentos` |
-| Exclusion constraint contra conflito de agenda (via migration) | — (pré-requisito da spec da Agenda v1) | `agendamentos` |
-| Único caixa aberto por empresa (via migration) | #3 | `caixas` |
+| Proteção cross-tenant em `agendamentos` (via migration) — **feito** | #2 | `agendamentos`, migration `20260807034459_validar_tenant_agendamentos.sql` |
+| Exclusion constraint contra conflito de agenda (via migration) — **feito** | — (pré-requisito da spec da Agenda v1) | `agendamentos`, migration `20260807035205_prevenir_conflito_agenda.sql` |
+| Único caixa aberto por empresa (via migration) — **feito** | #3 | `caixas`, migration `20260807035633_unico_caixa_aberto.sql` |
 
 ## Prioridade 1 — Hardening técnico adicional (antes ou junto da próxima feature)
 
@@ -71,12 +74,12 @@ concluída):
   da Agenda v1; a Agenda recebe a implementação responsiva detalhada na
   sprint dela (ver `docs/roadmap/AGENDA_AGENDAMENTOS_V1.md#ux-responsiva`).
   Não é mais uma decisão pendente — é trabalho a sequenciar.
-- Timezone — **decidido**: um fuso por empresa, coluna `empresas.timezone`
-  (string IANA, default `America/Sao_Paulo`), nunca depender do timezone do
-  navegador. Implica corrigir também `/caixa` e `/relatorios`, que hoje
-  formatam data/hora via `toLocaleString`/`toLocaleDateString` dependente do
-  browser — escopo exato (só Agenda nova, ou também esses dois já
-  existentes) ainda em confirmação com o product owner.
+- Timezone — **decidido e implementado 2026-08-07**: um fuso por empresa,
+  coluna `empresas.timezone` (string IANA, default `America/Sao_Paulo`),
+  nunca depender do timezone do navegador. `/caixa` e `/relatorios` (que
+  formatavam data/hora via `toLocaleString`/`toLocaleDateString` dependente
+  do browser) já foram corrigidos junto com a fundação — não é mais trabalho
+  pendente, ver `docs/superpowers/plans/2026-08-07-hardening-p0-timezone.md`.
 - `crud_perfis` restritiva por papel — só vira urgente quando "convite de
   profissional/recepção" (login próprio de staff) entrar em escopo. A
   correção imediata (Prioridade 0) impede escalada de papel; restrição fina
@@ -104,9 +107,13 @@ de virar agendamento/venda, metas por profissional.
   operam a agenda completa; restrição de profissional ao próprio calendário
   fica modelada mas não implementada até existir vínculo usuário↔profissional.
 - ~~Timezone?~~ **Decidido 2026-08-07:** um fuso por empresa, IANA,
-  `America/Sao_Paulo` como default, nunca depender do browser. Aberto ainda:
-  corrigir `/caixa` e `/relatorios` (já usam timezone do browser hoje) junto
-  com esta mudança, ou só a partir da Agenda?
+  `America/Sao_Paulo` como default, nunca depender do browser. **Implementado
+  2026-08-07:** coluna `empresas.timezone` adicionada (migration
+  `20260807035933_timezone_empresa.sql`), `v_faturamento_diario` agrupando
+  por dia local da empresa, e tanto `/caixa` quanto `/relatorios` corrigidos
+  para não depender mais do timezone do browser — a pergunta "só Agenda nova,
+  ou também esses dois já existentes" foi resolvida a favor de corrigir os
+  dois já existentes junto com a fundação.
 - Quando priorizar "convite de profissional/recepção" (login próprio de
   staff) — antes ou depois de Comissionamento? Comissionamento hoje só
   precisa que `profissionais` exista, não que o profissional tenha login.

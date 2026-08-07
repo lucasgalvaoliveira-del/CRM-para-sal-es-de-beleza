@@ -151,18 +151,18 @@ banco/RLS.
 | # | Risco | Severidade | Onde |
 |---|-------|------------|------|
 | 1 | Sem estratégia de migrations versionadas | Média (trava colaboração/histórico, não é bug ativo) | `supabase/schema.sql` |
-| 2 | Referências entre tabelas não validam mesma empresa (`agendamentos.profissional_id`/`servico_id`, `movimentacoes_caixa.agendamento_id`) | Alta (integridade cross-tenant depende só de UUID não ser adivinhado) | `supabase/schema.sql` |
-| 3 | Nada impede dois caixas abertos na mesma empresa | Média-Alta (dado financeiro incorreto, saldo confuso) | `caixa/actions.ts:abrirCaixa` |
+| 2 | ~~Referências entre tabelas não validam mesma empresa~~ **Resolvido** — triggers `validar_tenant_agendamento`/`validar_tenant_movimentacao_agendamento` fecham a brecha. Ver `supabase/migrations/20260807034459_validar_tenant_agendamentos.sql`. | `supabase/schema.sql` |
+| 3 | ~~Nada impede dois caixas abertos na mesma empresa~~ **Resolvido** — índice único parcial `caixas_um_aberto_por_empresa` (`status = 'aberto'`). Ver `supabase/migrations/20260807035633_unico_caixa_aberto.sql`. | `caixa/actions.ts:abrirCaixa` |
 | 4 | Agenda sem fluxo de criação/conflito/timezone | N/A — é a próxima feature, ver `docs/roadmap/AGENDA_AGENDAMENTOS_V1.md` | `(app)/agenda/page.tsx` |
 | 5 | Inserts diretos do client em 4 módulos (Clientes/Serviços/Produtos/Profissionais) | Baixa hoje (sem regra de negócio pulada), sobe se regras entrarem | módulos sem `actions.ts` |
 | 6 | Sem tipos gerados, validação, testes | Média (velocidade de dev e classe de bugs de shape/validação) | projeto todo |
 | 7 | Sem estratégia responsiva | Média (bloqueia uso mobile, que é comum em salões) | todo `src/` |
-| 8 | `crud_perfis` é `FOR ALL` sem restrição — um gestor autenticado pode inserir/atualizar linhas de `perfis` da própria empresa com qualquer `id`/`papel`, incluindo potencialmente assumir outro papel ou vincular um `auth.users` id arbitrário antes desse usuário logar | Baixa hoje (só 1 usuário por empresa existe), sobe com convite multiusuário | `supabase/schema.sql` policy `crud_perfis` |
-| 9 | `caixa/actions.ts:abrirCaixa` faz `.from("perfis").select("empresa_id").single()` sem `.eq("id", user.id)` — funciona hoje só porque RLS + 1 usuário por empresa faz isso retornar 1 linha; quebra (`.single()` lança erro) assim que uma empresa tiver 2+ usuários | Baixa hoje, vira bug ativo com convite multiusuário | `caixa/actions.ts:8` |
-| 10 | `criar_empresa_e_perfil` é executável pela role `anon` (sem `REVOKE`/guarda explícita de `auth.uid() is null`) — não é explorável hoje porque a falta de `auth.uid()` causa violação de NOT NULL e a transação inteira reverte, mas é superfície de ataque desnecessária | Baixa (não explorável, mas incidental) | `supabase/schema.sql` |
+| 8 | ~~`crud_perfis` é `FOR ALL` sem restrição~~ **Resolvido** — policy substituída por `select_perfis_da_empresa` + `update_proprio_perfil` (sem insert/delete para `authenticated`) e trigger `bloquear_escalada_papel` impede alterar o próprio `papel`/`empresa_id`. Ver `supabase/migrations/20260807033342_harden_perfis_rls.sql`. | `supabase/schema.sql` policy `crud_perfis` (substituída) |
+| 9 | ~~`caixa/actions.ts:abrirCaixa` faz select de `perfis` sem `.eq("id", user.id)`~~ **Resolvido** — lookup agora escopado ao usuário autenticado. Ver `src/app/(app)/caixa/actions.ts`. | `caixa/actions.ts:8` |
+| 10 | ~~`criar_empresa_e_perfil` é executável pela role `anon`~~ **Resolvido** — `revoke execute ... from anon/public` + `grant ... to authenticated`. Ver `supabase/migrations/20260807034032_restrict_criar_empresa_e_perfil.sql`. | `supabase/schema.sql` |
 
-Nenhum destes é bloqueante para o uso atual (1 empresa, 1 usuário por
-empresa) — todos ficam ativos/exploráveis a partir do momento em que:
-(2)/(3) alguém realmente cria um segundo agendamento/caixa concorrente, ou
-(8)/(9) uma segunda pessoa loga na mesma empresa. Priorização em
+Riscos #2, #3, #8, #9 e #10 foram fechados na branch `hardening-p0-timezone`
+(ver notas na tabela acima) — deixaram de depender de "só 1 usuário/caixa
+por empresa hoje" para não serem exploráveis. Riscos remanescentes (#1, #5,
+#6, #7) continuam não bloqueantes para o uso atual. Priorização em
 `docs/roadmap/ROADMAP.md`.

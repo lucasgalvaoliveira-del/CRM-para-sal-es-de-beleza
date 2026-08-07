@@ -9,15 +9,15 @@ o SQL exato.
 
 | Tabela | Chave estrangeira de tenant | Propósito |
 |---|---|---|
-| `empresas` | — (é o próprio tenant) | Um salão. |
+| `empresas` | — (é o próprio tenant) | Um salão. `timezone` (IANA, default `America/Sao_Paulo`) desde `20260807035933_timezone_empresa.sql` — ver "Timezone e exibição de datas" abaixo. |
 | `perfis` | `empresa_id` | 1:1 com `auth.users` (PK = FK). `papel`: gestor/profissional/recepcao — **campo existe, não é usado em nenhuma autorização ainda**. |
 | `profissionais` | `empresa_id` | Cadastro de staff. `percentual_comissao` existe, sem lógica de comissionamento ainda. |
 | `clientes` | `empresa_id` | — |
 | `servicos` | `empresa_id` | — |
 | `produtos` | `empresa_id` | Estoque + preço custo/venda. |
-| `agendamentos` | `empresa_id` | Referencia `clientes`, `profissionais`, `servicos` — **sem garantir que essas referências pertencem à mesma empresa** (risco #2, ver abaixo). `fim > inicio` é validado; sobreposição de horário do mesmo profissional **não é**. |
-| `caixas` | `empresa_id` | Sessão de caixa aberto/fechado. **Nada impede duas linhas `status = 'aberto'` simultâneas na mesma empresa** (risco #3). |
-| `movimentacoes_caixa` | via `caixa_id → caixas.empresa_id` (indireto) | Entrada/saída. `agendamento_id` opcional, mesmo problema de referência cross-tenant do risco #2. |
+| `agendamentos` | `empresa_id` | Referencia `clientes`, `profissionais`, `servicos` — validação cross-tenant garantida por trigger desde `20260807034459_validar_tenant_agendamentos.sql` (risco #2, **resolvido**, ver abaixo). `fim > inicio` é validado; sobreposição de horário do mesmo profissional é impedida por exclusion constraint (`20260807035205_prevenir_conflito_agenda.sql`). |
+| `caixas` | `empresa_id` | Sessão de caixa aberto/fechado. Único `status = 'aberto'` por empresa garantido por índice único parcial desde `20260807035633_unico_caixa_aberto.sql` (risco #3, **resolvido**). |
+| `movimentacoes_caixa` | via `caixa_id → caixas.empresa_id` (indireto) | Entrada/saída. `agendamento_id` opcional — mesma validação cross-tenant do risco #2 (**resolvido**), via `validar_tenant_movimentacao_agendamento`. |
 
 View: `v_faturamento_diario` — soma diária de `movimentacoes_caixa` por
 `empresa_id`, usada em `/relatorios`. **Tinha `security_invoker` desligado
@@ -27,6 +27,44 @@ para qualquer holder da chave `anon`) — corrigido, `security_invoker = on`
 desde então. Qualquer view nova **precisa** desse `alter view ... set
 (security_invoker = on)` explícito, porque Postgres/Supabase não liga isso
 por padrão.
+
+## Timezone e exibição de datas
+
+`empresas.timezone` (`text not null default 'America/Sao_Paulo'`, desde
+`supabase/migrations/20260807035933_timezone_empresa.sql`) guarda o fuso
+horário IANA (ex: `America/Sao_Paulo`) da empresa. Sem validação de formato
+ainda — não há UI para escrevê-lo (fica no default para toda empresa hoje),
+então não existe input não confiável a validar por enquanto. Validar (ex:
+contra a lista de timezones do ICU/Postgres) quando uma tela de
+configuração for adicionar essa escrita.
+
+Essa coluna alimenta `v_faturamento_diario.dia` (`date(m.criado_em at time
+zone e.timezone)`) — cada movimentação de caixa é bucketada no dia local
+*real* da empresa, não no dia UTC.
+
+**Convenção de exibição — por que `timestamptz` e `date` são tratados
+diferente na UI:**
+
+- Colunas `timestamptz` (ex: `movimentacoes_caixa.criado_em`) guardam um
+  instante absoluto — exibir corretamente exige aplicar o timezone real da
+  empresa (buscado de `empresas.timezone`) na formatação, ex:
+  `new Date(m.criado_em).toLocaleTimeString("pt-BR", { timeZone: empresa.timezone })`
+  (ver `src/app/(app)/caixa/page.tsx`).
+- `v_faturamento_diario.dia`, por outro lado, é um `date` puro — a view já
+  fez o bucketing para o dia local correto usando `at time zone` no SQL (
+  acima). O valor que chega ao client é uma string `date`-only (`"2026-08-07"`),
+  e `new Date("2026-08-07")` em JavaScript sempre faz parse como **meia-noite
+  UTC**, independente do timezone do runtime. Se a UI reaplicasse o timezone
+  real da empresa na formatação (ex: `timeZone: empresa.timezone`), estaria
+  convertendo essa meia-noite UTC *de novo* para local, o que desloca o dia
+  exibido em um para qualquer timezone de offset negativo (caso de
+  `America/Sao_Paulo`) — bug já verificado ao vivo durante a implementação.
+  A formatação correta para esse campo é sempre `timeZone: "UTC"`
+  (ver `src/app/(app)/relatorios/page.tsx`), porque isso apenas lê de volta
+  o dia que a view já calculou, sem reaplicar nenhum offset. Essa regra vale
+  só para campos `date`-only que já passaram por bucketing local no SQL —
+  não se aplica a um `timestamptz` genuíno, que precisa do timezone real
+  para mostrar a hora local correta.
 
 ## RLS e multi-tenancy
 
@@ -78,12 +116,12 @@ Duas no projeto, ambas deliberadas e documentadas inline no `schema.sql`:
    `empresa_do_usuario()` retorna null e toda policy falha fechada). A
    função insere `empresas` + `perfis` atomicamente, guarda contra duplo
    perfil (`if exists (select 1 from perfis where id = auth.uid())`).
-   **Risco #10** (baixa severidade): é executável pela role `anon` — não
-   explorável hoje (sem sessão, `auth.uid()` é null, o insert em `perfis`
-   viola NOT NULL e a transação inteira reverte), mas não há `revoke
-   execute ... from anon` nem uma guarda explícita `if auth.uid() is null
-   then raise exception`. Fechar isso é barato e reduz superfície de
-   ataque incidental — candidato a uma migration pequena e isolada.
+   **Risco #10 — resolvido** (`supabase/migrations/20260807034032_restrict_criar_empresa_e_perfil.sql`):
+   a função agora tem uma guarda explícita `if auth.uid() is null then raise
+   exception` no início, e `revoke execute ... from public, anon` + `grant
+   execute ... to authenticated` fecham a role `anon` fora da superfície de
+   execução (antes não explorável, mas incidental — ver histórico abaixo do
+   que era o risco).
 
 Regra para o futuro: **toda função `security definer` nova precisa de**
 `set search_path = public` (proteção contra search_path hijacking — já
@@ -97,7 +135,16 @@ Ver também a tabela consolidada em
 `docs/architecture/ARCHITECTURE.md#riscos-técnicos` — aqui, o detalhe
 técnico de cada risco que é especificamente de banco/RLS:
 
-### Risco #2 — referências cross-tenant não validadas
+### Risco #2 — referências cross-tenant não validadas (resolvido)
+
+**Resolvido em `supabase/migrations/20260807034459_validar_tenant_agendamentos.sql`**,
+via a opção "trigger de validação" descrita abaixo: `validar_tenant_agendamento`
+(before insert/update em `agendamentos`) e
+`validar_tenant_movimentacao_agendamento` (before insert/update em
+`movimentacoes_caixa`) checam que `cliente_id`/`profissional_id`/
+`servico_id`/`agendamento_id` referenciados pertencem à mesma `empresa_id`
+do registro sendo criado/atualizado, e lançam exceção se não baterem.
+Contexto histórico do risco original abaixo.
 
 `agendamentos.profissional_id references profissionais(id)` não garante
 que `profissionais.empresa_id = agendamentos.empresa_id`. Mesmo problema em
@@ -124,9 +171,14 @@ consumidores), trigger onde a FK composta exigir tocar em muita coisa de
 uma vez. Decisão de implementação fica para quando a Agenda v1 for
 implementada (é exatamente a tabela mais exposta a esse risco).
 
-### Risco #3 — múltiplos caixas abertos
+### Risco #3 — múltiplos caixas abertos (resolvido)
 
-Sem constraint no banco. Fix direto:
+**Resolvido em `supabase/migrations/20260807035633_unico_caixa_aberto.sql`**,
+exatamente com o fix direto descrito abaixo — o índice único parcial foi
+criado como estava planejado. `caixa/actions.ts:abrirCaixa` também foi
+atualizado (`77641f1`) para capturar a violação (`error.code === "23505"`)
+e devolver uma mensagem amigável ("Já existe um caixa aberto para esta
+empresa.") em vez do erro genérico do Postgres.
 
 ```sql
 create unique index caixas_um_aberto_por_empresa
@@ -136,11 +188,20 @@ create unique index caixas_um_aberto_por_empresa
 
 Índice único parcial — permite quantos caixas `'fechado'` quiser, mas só um
 `'aberto'` por empresa, e falha no banco (não só na aplicação) se algo
-tentar abrir um segundo. Precisa andar junto com `abrirCaixa` passando a
-checar e devolver um erro amigável em vez de deixar a constraint do banco
-estourar como erro genérico pro usuário.
+tentar abrir um segundo.
 
-### Risco #8 — `crud_perfis` permissiva
+### Risco #8 — `crud_perfis` permissiva (resolvido)
+
+**Resolvido em `supabase/migrations/20260807033342_harden_perfis_rls.sql`**:
+a policy `crud_perfis` (`for all`) foi removida e substituída por
+`select_perfis_da_empresa` (select, escopado à empresa) +
+`update_proprio_perfil` (update, `using`/`with check` restrito a
+`id = auth.uid()`) — sem policy de insert/delete para `authenticated` (a
+única forma legítima de criar um perfil continua sendo
+`criar_empresa_e_perfil`, que roda como `security definer`). Um trigger
+`bloquear_escalada_papel` (before update) adicionalmente impede que o
+próprio usuário altere `papel` ou `empresa_id` no seu perfil, mesmo dentro
+do update permitido. Contexto histórico do risco original abaixo.
 
 `for all using (empresa_id = empresa_do_usuario())` deixa qualquer membro
 autenticado da empresa inserir/atualizar qualquer linha de `perfis` da

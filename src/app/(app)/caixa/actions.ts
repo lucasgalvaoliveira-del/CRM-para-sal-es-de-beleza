@@ -5,7 +5,16 @@ import { revalidatePath } from "next/cache";
 
 export async function abrirCaixa(valorAbertura: number) {
   const supabase = await createClient();
-  const { data: perfil } = await supabase.from("perfis").select("empresa_id").single();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Não autenticado." };
+
+  const { data: perfil } = await supabase
+    .from("perfis")
+    .select("empresa_id")
+    .eq("id", user.id)
+    .single();
   if (!perfil) return { error: "Perfil não encontrado. Configure autenticação primeiro." };
 
   const { error } = await supabase.from("caixas").insert({
@@ -14,7 +23,10 @@ export async function abrirCaixa(valorAbertura: number) {
     status: "aberto",
   });
 
-  if (error) return { error: error.message };
+  if (error) {
+    if (error.code === "23505") return { error: "Já existe um caixa aberto para esta empresa." };
+    return { error: error.message };
+  }
   revalidatePath("/caixa");
   return { error: null };
 }
