@@ -219,9 +219,9 @@ feature.
 
 ## Limitações conhecidas (v1)
 
-- **`slotEhInicio` e agendamentos com início anterior ao primeiro slot do
-  dia** (`AgendaGrade.tsx`): a grade só renderiza o bloco completo e
-  clicável de um agendamento no slot onde seu `inicio` real cai; qualquer
+- **`slotEhInicio` e agendamentos ativos com início anterior ao primeiro
+  slot do dia** (`AgendaGrade.tsx`): a grade só renderiza o bloco completo
+  e clicável de um agendamento no slot onde seu `inicio` real cai; qualquer
   outro slot que ele sobreponha mostra apenas o preenchimento mudo "···".
   Se um agendamento tivesse `inicio` anterior ao primeiro slot visível do
   dia, nenhum slot satisfaria essa condição e o agendamento se tornaria
@@ -232,17 +232,32 @@ feature.
   muito longo pudesse ser agendado perto do fechamento. Tratamento
   deliberadamente adiado (mesmo critério já aplicado ao caso de horário
   ambíguo por DST nas funções SQL do Task 1): documentar, não adicionar
-  lógica defensiva sem alcançabilidade nem testes. **Atualização (fix final
-  de revisão):** existia um segundo caminho pra essa mesma limitação, via
-  `agendamentoNoSlot`, que não dependia do horário comercial fixo — um
-  cancelado/faltou com `inicio` mais cedo podia "sombrear" um ativo
-  sobrepondo o mesmo slot num `.find()` sem preferência de status,
-  deixando o ativo sem nenhum slot onde `slotEhInicio()` fosse satisfeita.
-  Esse caminho foi fechado junto com a correção de cancelado/faltou
-  bloqueando o slot (ver item de liberação de horário abaixo):
-  `agendamentoNoSlot` agora sempre prefere devolver um ativo quando ele
-  sobrepõe o slot, então a limitação acima (limite do expediente) volta a
-  ser a única via de acesso a esse caso.
+  lógica defensiva sem alcançabilidade nem testes.
+
+- **Agendamentos `cancelado`/`faltou` não aparecem mais na grade —
+  hotfix de 2026-08-07, encontrado em produção logo após o merge da Agenda
+  v1.** O design original (ver histórico do fix wave da revisão final)
+  fazia `agendamentoNoSlot` preferir um agendamento ativo mas ainda
+  devolver um cancelado/faltou como fallback quando fosse o único
+  sobrepondo o slot — a intenção era manter o bloco do cancelado visível
+  pra permitir reabri-lo/reativá-lo pela própria grade. Na prática isso
+  quebrava o caso mais comum do fluxo: com um serviço de 30 minutos (sem
+  slot de continuação "···" no meio), o bloco do cancelado ocupava a célula
+  inteira e seu botão interceptava o clique (`stopPropagation`) antes de
+  chegar no `onClick` do slot — cancelar um agendamento e tentar reagendar
+  no mesmo horário abria o menu de status do cancelado, não o formulário de
+  criação, mesmo com o horário já livre no banco. `agendamentoNoSlot` agora
+  filtra `cancelado`/`faltou` completamente: eles nunca ocupam um slot nem
+  renderizam bloco na grade, então o slot fica livre pra reagendar assim
+  que o status muda, exatamente como a regra de negócio já descrevia
+  ("Cancelar ou marcar 'faltou' libera o horário automaticamente"). Como
+  efeito colateral aceito: não há mais como ver ou reativar um agendamento
+  cancelado/faltou a partir da grade — isso fica para uma futura tela de
+  histórico, fora do escopo desta feature. `atualizarStatusAgendamento`
+  continua tratando `23P01` na reativação (o caminho continua correto
+  quando exercido, só não é mais alcançável pela grade nesta v1).
+  Verificado ao vivo contra o Supabase real: criar → cancelar → slot libera
+  e fica clicável → reagendar no mesmo horário funciona sem erro.
 
 - **Grade/lista responsiva da Agenda depende do shell do app também ficar
   responsivo**: o split `md:` (grade em telas médias+, lista "um

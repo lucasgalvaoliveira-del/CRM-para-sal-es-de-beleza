@@ -42,34 +42,29 @@ export default function AgendaGrade({
   const [slotSelecionado, setSlotSelecionado] = useState<{ profissionalId: string; horario: string } | null>(null);
   const [profissionalMobile, setProfissionalMobile] = useState(colunas[0].id);
 
-  // Encontra o agendamento que sobrepõe este slot pra este profissional —
-  // cobre tanto o slot em que o agendamento começa quanto qualquer slot
-  // seguinte que ele ainda ocupa (ex: serviço de 60min cobre 2 slots de
-  // 30min). Compara [inicio,fim) reais de ambos os lados, nunca horário
-  // local formatado.
+  // Encontra o agendamento ATIVO que sobrepõe este slot pra este
+  // profissional — cobre tanto o slot em que o agendamento começa quanto
+  // qualquer slot seguinte que ele ainda ocupa (ex: serviço de 60min cobre
+  // 2 slots de 30min). Compara [inicio,fim) reais de ambos os lados, nunca
+  // horário local formatado.
   //
-  // Prefere um agendamento ativo (bloqueia o slot); um cancelado/faltou
-  // só aparece se não houver nenhum ativo sobrepondo o mesmo slot —
-  // assim o slot libera pra novo agendamento, mas o cancelado ainda
-  // pode ser visto/reaberto se for o único ocupando aquele horário.
+  // Cancelado/faltou NUNCA ocupa um slot aqui — a regra de negócio já os
+  // exclui da exclusion constraint no banco (o horário está livre pra
+  // reagendar assim que o status muda), e a UI precisa refletir isso: o
+  // bloco de um agendamento cobre a célula inteira e intercepta o clique
+  // (AgendamentoBloco faz stopPropagation no botão), então um cancelado
+  // sendo "o único candidato" nesse slot travaria o clique de criação sem
+  // nenhuma forma de contornar — um bug real encontrado em produção logo
+  // após o merge da Agenda v1. Ver histórico de agendamentos cancelados é
+  // uma feature futura (fora da grade de ocupação), não este componente.
   function agendamentoNoSlot(profissionalId: string, slot: Slot) {
-    const candidatos = agendamentos.filter(
-      (a) => a.profissional_id === profissionalId && sobrepoe(a.inicio, a.fim, slot.inicio, slot.fim)
+    return agendamentos.find(
+      (a) =>
+        a.profissional_id === profissionalId &&
+        a.status !== "cancelado" &&
+        a.status !== "faltou" &&
+        sobrepoe(a.inicio, a.fim, slot.inicio, slot.fim)
     );
-    return (
-      candidatos.find((a) => a.status !== "cancelado" && a.status !== "faltou") ??
-      candidatos[0]
-    );
-  }
-
-  // Um slot está de fato ocupado (bloqueia a criação de um novo
-  // agendamento) só quando o agendamento retornado por agendamentoNoSlot é
-  // ativo. Como agendamentoNoSlot sempre prefere devolver um ativo quando
-  // existe um sobrepondo o slot, checar o status do próprio retorno basta —
-  // não precisa de uma segunda busca: se o retornado ainda é
-  // cancelado/faltou, é porque nenhum ativo sobrepõe este slot.
-  function slotOcupado(agendamento: AgendamentoRow | undefined) {
-    return !!agendamento && agendamento.status !== "cancelado" && agendamento.status !== "faltou";
   }
 
   // Um slot "é o início" de um agendamento quando o inicio real do
@@ -86,18 +81,6 @@ export default function AgendaGrade({
   // oferece horários dessa mesma lista). Revisitar se essas premissas
   // mudarem (horário comercial configurável, serviço muito longo perto do
   // fechamento).
-  //
-  // Nota à parte: antes de agendamentoNoSlot preferir um ativo (ver acima),
-  // um cancelado/faltou com `inicio` mais cedo podia "sombrear" um ativo
-  // sobrepondo o mesmo slot — o `.find()` sem preferência de status podia
-  // devolver o cancelado em todo slot que ambos sobrepusessem, inclusive no
-  // slot de início do ativo, deixando o ativo sem nenhum slot onde
-  // slotEhInicio() fosse satisfeita pra ele. Isso não dependia do horário
-  // comercial fixo, então já era alcançável dentro do expediente normal.
-  // Com a preferência por ativo, esse caminho está fechado: o ativo é
-  // sempre devolvido quando sobrepõe o slot, então sempre tem seu slot de
-  // início corretamente identificado. A limitação documentada acima (limite
-  // do expediente) é a única que permanece.
   function slotEhInicio(agendamento: AgendamentoRow, slot: Slot) {
     const inicioMs = new Date(agendamento.inicio).getTime();
     return inicioMs >= new Date(slot.inicio).getTime() && inicioMs < new Date(slot.fim).getTime();
@@ -138,7 +121,7 @@ export default function AgendaGrade({
                   <div
                     key={`${p.id}-${slot.horario}`}
                     className="border-t border-l border-plum-400/10 min-h-10 hover:bg-sage-300/10 transition-colors"
-                    onClick={() => !slotOcupado(agendamento) && abrirFormulario(p.id, slot.horario)}
+                    onClick={() => !agendamento && abrirFormulario(p.id, slot.horario)}
                   >
                     {agendamento && ehInicio && (
                       <AgendamentoBloco
@@ -184,7 +167,7 @@ export default function AgendaGrade({
               <div
                 key={slot.horario}
                 className="flex items-center gap-3 px-4 py-3 hover:bg-sage-300/10 transition-colors"
-                onClick={() => !slotOcupado(agendamento) && abrirFormulario(profissionalMobile, slot.horario)}
+                onClick={() => !agendamento && abrirFormulario(profissionalMobile, slot.horario)}
               >
                 <span className="text-xs text-ink-900/50 w-12 shrink-0">{slot.horario}</span>
                 {agendamento && ehInicio && (
