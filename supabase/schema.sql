@@ -1,4 +1,21 @@
 -- ============================================================
+-- ATENÇÃO — SNAPSHOT HISTÓRICO, NÃO É MAIS A FONTE DE VERDADE
+--
+-- Este arquivo representa o schema apenas até a migration de
+-- baseline pré-CLI (20260807000634_baseline_schema.sql). Ele NÃO
+-- reflete nenhuma mudança aplicada via supabase/migrations/ desde
+-- então (ex: RLS de perfis endurecida, validação cross-tenant de
+-- agendamentos, caixa único aberto por empresa, empresas.timezone,
+-- e outras). A fonte de verdade atual do schema é a sequência de
+-- arquivos em supabase/migrations/, aplicados em ordem.
+--
+-- Rodar só este arquivo num projeto novo NÃO é mais suficiente
+-- para reproduzir o schema atual — ver
+-- docs/database/DATABASE.md#estratégia-de-migrations para o fluxo
+-- de setup correto (supabase link + supabase db push).
+-- ============================================================
+
+-- ============================================================
 -- Alva — schema inicial (MVP: Clientes, Profissionais, Serviços,
 -- Agenda, Caixa). Sistema próprio de gestão para negócios de
 -- beleza/estética. Nenhuma estrutura, nome de coluna ou lógica
