@@ -18,13 +18,25 @@ prioridade.
 3. **Nada do backlog de paridade GestorSim entra sem passar por um ciclo de
    brainstorming próprio** — é referência, não fila de tarefas.
 
-## Prioridade 1 — Hardening técnico (antes ou junto da próxima feature)
+## Prioridade 0 — Bloqueadores antes da Agenda v1 (definido em 2026-08-07)
+
+Classificados como bloqueantes pelo product owner — nenhum trabalho de
+Agenda v1 começa antes destes 5 itens estarem resolvidos:
+
+| Item | Risco que resolve | Onde |
+|---|---|---|
+| RLS de `perfis`: impedir escalada de papel e alteração indevida entre usuários | #8 | policy `crud_perfis` |
+| Restringir `criar_empresa_e_perfil` a usuários autenticados | #10 | função `criar_empresa_e_perfil` |
+| Corrigir obtenção de perfil/empresa no caixa para vincular explicitamente ao usuário autenticado | #9 | `caixa/actions.ts:8` |
+| Migrations versionadas — **feito** (Supabase CLI adotado, ver `docs/database/DATABASE.md#estratégia-de-migrations`) | #1 | `supabase/migrations/` |
+| Proteção cross-tenant em `agendamentos` (via migration) | #2 | `agendamentos` |
+| Exclusion constraint contra conflito de agenda (via migration) | — (pré-requisito da spec da Agenda v1) | `agendamentos` |
+| Único caixa aberto por empresa (via migration) | #3 | `caixas` |
+
+## Prioridade 1 — Hardening técnico adicional (antes ou junto da próxima feature)
 
 | Item | Risco que resolve | Esforço estimado |
 |---|---|---|
-| Índice único parcial: 1 caixa aberto por empresa | #3 | Pequeno (1 migration + 1 checagem em `abrirCaixa`) |
-| FK/trigger tenant-scoped em `agendamentos` | #2 | Médio — bloqueante para Agenda v1 ser segura, ver spec |
-| Fechar `criar_empresa_e_perfil` para `anon` | #10 | Trivial |
 | Gerar tipos TypeScript do Supabase | — (produtividade + classe de bug) | Pequeno, repetir a cada mudança de schema |
 
 ## Prioridade 2 — Próxima feature de produto
@@ -51,19 +63,24 @@ concluída):
 
 ## Prioridade 4 — Lacunas estruturais (sem bloquear nada hoje, mas crescem com o produto)
 
-- Estratégia de migrations versionadas (`docs/database/DATABASE.md#estratégia-de-migrations`) —
-  decisão de produto pendente sobre adotar Supabase CLI local.
 - Validação centralizada (zod) nas Server Actions.
 - Organização modular por feature — aplicar a partir da Agenda v1, não
   retrofitar módulos simples existentes sem necessidade.
-- Estratégia responsiva — ver `docs/CODING_STANDARDS.md#responsividade`.
-  Decisão pendente: mobile-first redesign geral, ou só garantir que Agenda
-  v1 (o módulo mais crítico para uso no salão, potencialmente em tablet/
-  celular no balcão) nasça responsiva e o resto migra depois?
+- **Fundamentos mobile-first — decidido, ainda não implementado**: layout,
+  navegação, tabelas e formulários recebem a base responsiva agora, antes
+  da Agenda v1; a Agenda recebe a implementação responsiva detalhada na
+  sprint dela (ver `docs/roadmap/AGENDA_AGENDAMENTOS_V1.md#ux-responsiva`).
+  Não é mais uma decisão pendente — é trabalho a sequenciar.
+- Timezone — **decidido**: um fuso por empresa, coluna `empresas.timezone`
+  (string IANA, default `America/Sao_Paulo`), nunca depender do timezone do
+  navegador. Implica corrigir também `/caixa` e `/relatorios`, que hoje
+  formatam data/hora via `toLocaleString`/`toLocaleDateString` dependente do
+  browser — escopo exato (só Agenda nova, ou também esses dois já
+  existentes) ainda em confirmação com o product owner.
 - `crud_perfis` restritiva por papel — só vira urgente quando "convite de
-  profissional/recepção" (login próprio de staff) entrar em escopo.
-- `.single()` sem `.eq("id", user.id)` em `caixa/actions.ts:8` — só vira
-  bug ativo quando uma empresa tiver 2+ usuários logando.
+  profissional/recepção" (login próprio de staff) entrar em escopo. A
+  correção imediata (Prioridade 0) impede escalada de papel; restrição fina
+  por papel em cada operação é trabalho futuro, separado.
 
 ## Visão de longo prazo (ERP / automações / IA)
 
@@ -77,10 +94,19 @@ de virar agendamento/venda, metas por profissional.
 
 ## Pendências de decisão de produto (não assumidas neste documento)
 
-- Adotar Supabase CLI local ou continuar com o fluxo atual de migration via
-  MCP?
-- Mobile-first geral agora, ou responsividade módulo a módulo começando
-  pela Agenda?
+- ~~Adotar Supabase CLI local?~~ **Decidido 2026-08-07: sim.** Ver
+  `docs/database/DATABASE.md#estratégia-de-migrations`.
+- ~~Mobile-first geral agora, ou responsividade módulo a módulo?~~
+  **Decidido 2026-08-07: fundamentos mobile-first agora** (layout, nav,
+  tabelas, formulários); Agenda recebe o detalhamento responsivo na própria
+  sprint.
+- ~~Permissões da Agenda v1?~~ **Decidido 2026-08-07:** gestor e recepção
+  operam a agenda completa; restrição de profissional ao próprio calendário
+  fica modelada mas não implementada até existir vínculo usuário↔profissional.
+- ~~Timezone?~~ **Decidido 2026-08-07:** um fuso por empresa, IANA,
+  `America/Sao_Paulo` como default, nunca depender do browser. Aberto ainda:
+  corrigir `/caixa` e `/relatorios` (já usam timezone do browser hoje) junto
+  com esta mudança, ou só a partir da Agenda?
 - Quando priorizar "convite de profissional/recepção" (login próprio de
   staff) — antes ou depois de Comissionamento? Comissionamento hoje só
   precisa que `profissionais` exista, não que o profissional tenha login.

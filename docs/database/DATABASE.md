@@ -155,30 +155,54 @@ inserir/alterar `papel` de outros).
 
 ## Estratégia de migrations
 
-Proposta (ainda não implementada — decisão de produto pendente sobre
-quando adotar):
+**Decidido e implementado (2026-08-07)**: Supabase CLI adotado como fonte
+de verdade do histórico de schema. MCP (`mcp__claude_ai_Supabase__*`)
+continua disponível para inspeção/operação assistida (queries, advisors,
+leitura de estado), mas deixa de ser usado para *definir* mudanças de
+schema — isso agora só acontece via arquivo de migration versionado.
 
-1. Criar `supabase/migrations/`, numeração `<timestamp>_descricao.sql`
-   (padrão Supabase CLI, compatível com `supabase db push`/`supabase
-   migration up` se o projeto adotar a CLI localmente no futuro).
-2. Toda mudança de schema daqui pra frente vira um arquivo de migration
-   novo, nunca uma edição retroativa de um arquivo já "aplicado" — mesmo
-   raciocínio de nunca reescrever um commit já mesclado.
-3. `schema.sql` deixa de ser editado à mão e passa a ser (quando/se for
-   necessário) o resultado consolidado de rodar todas as migrations em
-   sequência num banco vazio — útil para quem só quer "zerar e montar tudo
-   de novo" (é o que o `README.md` já orienta para configurar um projeto
-   novo).
-4. Aplicação continua podendo ser feita via
-   `mcp__claude_ai_Supabase__apply_migration` (já é o fluxo usado desde a
-   implementação da autenticação) — a mudança é só passar a nomear e
-   versionar cada uma como arquivo no repo, não aplicar SQL ad-hoc sem
-   deixar rastro versionado.
+Setup já feito no projeto real (`jumyrtjjgnzhcbhvckgo`):
 
-**Pendência de decisão de produto**: vale a pena adotar a Supabase CLI
-localmente (permite `supabase db diff`, ambiente local com Docker, testes
-de migration antes de aplicar no projeto real) ou é suficiente continuar
-com o fluxo atual (editar SQL, aplicar via MCP, documentar em
-`schema.sql`)? Ambos são compatíveis com a numeração de migrations proposta
-acima — a CLI só adiciona tooling em cima, não é pré-requisito. Não
-assumido aqui; ver `docs/roadmap/ROADMAP.md`.
+1. `supabase link --project-ref jumyrtjjgnzhcbhvckgo` — projeto local
+   vinculado ao projeto real.
+2. `supabase/migrations/` criado. O histórico de 5 migrations que já
+   existia no banco (aplicadas via MCP antes da adoção do CLI) foi marcado
+   como `reverted` via `supabase migration repair`, e o `schema.sql`
+   existente (já verificado batendo exatamente com o schema real) virou a
+   migration de baseline única: `20260807000634_baseline_schema.sql`,
+   registrada como `applied` via `supabase migration repair --status
+   applied`. Nenhum SQL foi reexecutado nesse processo — só sincronização
+   do rastreamento.
+3. `supabase db pull` (que geraria o baseline automaticamente via diff)
+   **não funciona neste ambiente** — exige Docker Desktop pra criar um
+   banco "sombra" de comparação, e Docker não está instalado. Decisão:
+   **não instalar Docker só para isso** — o baseline foi montado
+   manualmente a partir do `schema.sql` já verificado, que é equivalente.
+   Consequência prática: comandos que dependem do shadow database
+   (`supabase db diff`, `supabase db pull` para novas mudanças feitas fora
+   do CLI) não estão disponíveis neste ambiente. `supabase db push`
+   (aplicar migrations novas contra o projeto real) não depende de Docker
+   e funciona normalmente.
+
+Fluxo daqui pra frente para qualquer mudança de schema:
+
+1. `supabase migration new <descricao>` — cria um arquivo timestampado
+   vazio em `supabase/migrations/`.
+2. Escrever o SQL da mudança nesse arquivo (nunca editar um arquivo de
+   migration já commitado e aplicado — mesmo raciocínio de nunca reescrever
+   um commit já mesclado).
+3. `supabase db push` — aplica contra o projeto real.
+4. Commitar o arquivo de migration junto com qualquer mudança de código
+   TypeScript que dependa dele, no mesmo PR/commit lógico.
+
+`schema.sql` na raiz de `supabase/` deixa de ser a fonte de mudanças
+incrementais — mantido só como referência consolidada legada (o
+`README.md` ainda o referencia para setup de projeto novo do zero; ver
+pendência abaixo).
+
+**Pendência aberta**: atualizar o `README.md` para orientar setup de
+projeto novo via `supabase link` + `supabase db push` (aplica todas as
+migrations em sequência) em vez de "rode `schema.sql` no SQL Editor" — o
+fluxo antigo ainda funciona hoje (o conteúdo é idêntico), mas fica
+desalinhado da estratégia de migrations assim que a primeira migration nova
+for adicionada depois do baseline.
